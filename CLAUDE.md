@@ -392,3 +392,6 @@ Conventional commits, английский, повелительное накл�
 | Блоб призрака не влезает в лимит сообщения | 26 авг, спайк C | Чанки уже в кодеке. Либо 6 Гц вместо 8 |
 | Холодный старт пугает судью | 1 сен | Запечённые призраки, весь одиночный цикл без сервера |
 | Мир пустой на момент судейства | 31 авг | Зовём людей заранее. Сидовые заезды помечаем в схеме честно, как это сделал Mochi |
+
+Never run git commit or git push. Only create and edit files; the human commits.
+Never add Co-Authored-By or "Generated with Claude Code" attribution.
