@@ -1,0 +1,40 @@
+{
+  "ecs7": true,
+  "runtimeVersion": "7",
+  "authoritativeMultiplayer": true,
+  "logsPermissions": [
+    "0x0000000000000000000000000000000000000001",
+    "0x0000000000000000000000000000000000000002"
+  ],
+  "display": {
+    "title": "Slipstream",
+    "description": "A 60-second downhill run where nobody has ever ridden alone."
+  },
+  "owner": "",
+  "contact": {
+    "name": "Slipstream team",
+    "email": ""
+  },
+  "main": "bin/index.js",
+  "tags": ["game", "sports"],
+  "scene": {
+    "parcels": ["0,0", "0,1", "0,2", "0,3", "0,4", "0,5", "0,6", "0,7", "0,8", "0,9"],
+    "base": "0,0"
+  },
+  "spawnPoints": [
+    {
+      "name": "start",
+      "default": true,
+      "position": { "x": 8, "y": 21, "z": 6 },
+      "cameraTarget": { "x": 8, "y": 18, "z": 30 }
+    }
+  ],
+  "requiredPermissions": [
+    "ALLOW_TO_MOVE_PLAYER_INSIDE_SCENE",
+    "ALLOW_TO_TRIGGER_AVATAR_EMOTE"
+  ],
+  "featureToggles": {
+    "voiceChat": "disabled",
+    "portableExperiences": "disabled"
+  }
+}
