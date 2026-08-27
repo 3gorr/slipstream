@@ -10,8 +10,8 @@ export function main() {
     // import('./server/server').then((m) => m.startServer())
   } else {
     console.log('[CLIENT] up')
-    // --- SPIKE A (throwaway) ---
-    void import('./client/spike-a-hud').then((m) => m.setupSpikeAHud())
-    void import('./client/spike-a').then((m) => m.startSpikeA())
+    // --- SPIKE B (throwaway) ---
+    void import('./client/spike-b-hud').then((m) => m.setupSpikeBHud())
+    void import('./client/spike-b').then((m) => m.startSpikeB())
   }
 }

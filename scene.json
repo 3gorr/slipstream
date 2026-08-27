@@ -42,12 +42,12 @@
       "default": true,
       "position": {
         "x": 8,
-        "y": 21,
+        "y": 34.3,
         "z": 6
       },
       "cameraTarget": {
         "x": 8,
-        "y": 18,
+        "y": 30,
         "z": 30
       }
     }
