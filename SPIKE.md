@@ -36,29 +36,51 @@ as the failed probe, then removed.
 ## Spike B — avatar locked in a rolling gyrosphere
 
 **Redefined after Decision A.** Old framing ("board under the avatar's feet") is
-dead. New question: can we move the player by forces down the slope smoothly, and
-attach the avatar to the rolling sphere frozen in a sitting pose — or do we drop
-the avatar entirely and ride a bare sphere?
+dead. New question: can we move the player by forces down the slope smoothly?
 
-**Order of checks (day 2):**
+**What we tested.** Code-generated greybox chute, two segments **9.96° then
+14.40°**, joints meeting exactly (no step, concave crease at Z=78). Player frozen
+(`InputModifier`, explicit `disableWalk/Jog/Run/Jump/DoubleJump/Gliding` — NOT
+`disableAll`, which also swallows the action keys). A continuous `Physics` force
+(magnitude 120) pushes the player along a heading; A/D rotate the heading. A
+translucent emissive sphere mesh (R=1, no collider) is drawn on the player and
+rolled visually by distance (`roll += ds/R`). Run-out floor + end/back walls keep
+the player in bounds so respawn (`movePlayerTo`, F/E key) always has an in-bounds
+player. Tested on **desktop client 2.0**, `HIDE_AVATAR=true` (bare sphere), and a
+**fixed side observer camera** (`FOLLOW_CAM=false`) that does not track the player.
 
-1. **First and most important:** is force-driven movement down the slope smooth,
-   with no residual hop from the avatar character controller? The spike-A hop may
-   have come from the controller's ground-snapping, not only the walk animation.
-   If forces down the slope still judder — **say so plainly, that is the key
-   finding** and it threatens the whole approach.
-2. Attach the avatar the current way: `AAPT_POSITION` is deprecated — **parent to
-   `engine.PlayerEntity`** as the protocol recommends, not `AvatarAttach` with a
-   position anchor.
-3. Fallback ready: if the avatar in the sphere judders, **hide it via
-   `AvatarModifierArea`** and ride a bare sphere.
+**Result.** From the fixed observer camera, the sphere rides down the 9.96° /
+14.40° slope **smoothly**. **No ground-snapping hop in the movement itself.** The
+judder seen earlier was **camera jitter** from per-frame repositioning of the
+follow camera in `driveSystem`, not the motion.
 
-_Status: not started (day 2)._
+**Verdict: works.** Force-driven gyrosphere movement is smooth.
 
-- Decision B: __
-- Force-driven slope movement smooth? (check 1): __
-- Avatar attach method + pose freeze: __
-- SDK surprises: __
+**Decision B: ride the gyrosphere.** Confirmed — proceed on this basis.
+
+**Open tails (cosmetic, NOT blockers):**
+
+1. **Follow-camera jitter.** The back-and-above camera repositioned every frame in
+   `driveSystem` visibly jitters. Fix with smoothing / update-order (run the
+   camera system after physics) / parenting the camera rig to the player. Movement
+   underneath is fine.
+2. **Avatar pose in the sphere.** Not yet validated with the avatar visible
+   (`HIDE_AVATAR=false`). Need to check whether the sitting emote holds under
+   force-driven motion and freeze the pose if not. Three options already scoped:
+   (a) hide the real avatar + parent a static seated mesh to `engine.PlayerEntity`;
+   (b) `triggerSceneEmote({ src, loop: true })` with a custom one-frame
+   `*_emote.glb`; (c) real avatar + re-trigger on `AvatarEmoteCommand`
+   `ES_INTERRUPTED`.
+
+**SDK surprises (spike B):**
+- `InputModifier` `disableAll: true` also blocks the **action keys** (F/E =
+  `IA_SECONDARY`/`IA_PRIMARY`). Use explicit per-mode flags to keep them live.
+- `movePlayerTo` silently no-ops when the **player is out of scene bounds** (not
+  just the target). A gyrosphere that escapes the track makes respawn dead — must
+  physically contain the player.
+- `VirtualCamera.create(cam, {})` with **no `lookAtEntity`** uses the entity's
+  own `Transform` (position + rotation) and stays put — the way to do a fixed
+  observer cam.
 
 ---
 
