@@ -9,5 +9,6 @@ export function main() {
     console.log('[SERVER] up')
   } else {
     console.log('[CLIENT] up')
+    void import('./client/setup').then((m) => m.startClient())
   }
 }

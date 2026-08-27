@@ -1,6 +1,7 @@
-// Client entry. Day 1 skeleton — no gameplay wired yet.
-// Spikes hang their own setup calls off main() in src/index.ts.
+// Client entry point. Builds the scene, then the vehicle.
+import { buildTrack } from './track'
 
 export function startClient() {
   console.log('[CLIENT] setup')
+  buildTrack()
 }
