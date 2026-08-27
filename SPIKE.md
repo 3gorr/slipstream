@@ -2,6 +2,15 @@
 
 Three questions that can each kill the project. Rough one-off probes, not game code.
 
+**Status: all three spikes closed. Recon done.**
+
+- **A — ride feel:** avatar locomotion rejected (jerky hop on slopes). → gyrosphere.
+- **B — gyrosphere:** force-driven movement is smooth. → ride the gyrosphere.
+- **C — ghost blob:** 8 Hz / ~5.6 KB / 1 chunk / Catmull-Rom, no judder. → locked.
+
+Spike code (`src/client/spike-*.ts`, `spike-*-hud.tsx`, plus the probe wiring in
+`src/index.ts`) is kept in history, then removed before the real build starts.
+
 ---
 
 ## Spike A — does speed feel good?
@@ -86,11 +95,53 @@ follow camera in `driveSystem`, not the motion.
 
 ## Spike C — does the ghost blob fit in one message?
 
-_Status: not started (day 1, after docs)._
+**Codec.** `src/shared/codec.ts`. 7-byte sample (x/y/z `int16` cm from track
+start, LE; `yaw` `uint8` = 1/256 turn). `encodeGhost` → `GhostChunk[]` with
+`{ v, seq, total, hz, n, b64 }` headers from day one; `decodeGhost` reassembles
+by `seq` into a flat `GhostTrack` (`Float32Array` per axis, metres). Hand-rolled
+base64 (QuickJS has no `Buffer` / reliable `atob`). Playback system in
+`src/client/spike-c.ts` does **zero allocation per frame** — reads the typed
+arrays, lerps position + shortest-path yaw, writes straight into the mutable
+`Transform` fields (pure-yaw quaternion built from `Math.sin/cos`).
 
-- Full 75 s blob size in bytes (base64): __
-- 8 Hz interpolation judder: __
-- Decision C — sample rate + final blob size: __
+**Size — measured** (600 samples = 8 Hz × 75 s):
+
+| | bytes |
+|---|---|
+| raw payload | **4200** |
+| base64 | **5600** |
+| full message JSON (`{v,seq,total,hz,n,b64}`) | **5649** |
+| chunks | **1** |
+| 13 KB message limit | **FITS**, ~2.3× headroom |
+
+Round-trip error: position ≤ 0.50 cm (the 1 cm quantisation), yaw ≤ 0.70°
+(360/512). Negligible.
+
+Higher sample rates, if 8 Hz interpolation judders — all still a single chunk,
+all under 13 KB:
+
+| rate | samples | base64 |
+|---|---|---|
+| 10 Hz | 750 | 7000 B |
+| 12 Hz | 900 | 8400 B |
+| 16 Hz | 1200 | 11200 B |
+
+**8 Hz interpolation judder:** **none.** The ghost box appears, loops the recorded
+run beside the player, and slides smoothly. Playback uses **Catmull-Rom** through
+the samples (position per axis + shortest-path unwrapped yaw), with a soft clamp
+to the p1..p2 span (+15%) to curb overshoot on sharp turns. Zero allocation per
+frame — the interp helpers are module-level scalar functions, the system only
+reads the typed arrays and writes mutable `Transform` fields.
+
+**Decision C: 8 Hz, ~5.6 KB base64, 1 chunk, Catmull-Rom playback interpolation.**
+No judder, huge headroom under the 13 KB message limit. Chunk plumbing
+(`seq`/`total`) is in place for the day it's needed; nothing to revisit.
+
+**SDK surprises (spike C):**
+- QuickJS runtime: no `Buffer`, no dependable `atob`/`btoa` → base64 is
+  hand-rolled over `Uint8Array`.
+- `DataView` over `new Uint8Array(n).buffer` for LE int16 packing — needs a
+  runtime confirm on the desktop client (build + types are fine).
 
 ---
 
