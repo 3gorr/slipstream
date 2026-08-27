@@ -7,11 +7,11 @@ import './shared/messages'
 export function main() {
   if (isServer()) {
     console.log('[SERVER] up')
-    // Server-only modules (anything importing @dcl/sdk/server) are dynamically
-    // imported here so they never reach the client bundle.
     // import('./server/server').then((m) => m.startServer())
   } else {
     console.log('[CLIENT] up')
-    // import('./client/setup').then((m) => m.startClient())
+    // --- SPIKE A (throwaway) ---
+    void import('./client/spike-a-hud').then((m) => m.setupSpikeAHud())
+    void import('./client/spike-a').then((m) => m.startSpikeA())
   }
 }
