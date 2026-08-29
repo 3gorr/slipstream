@@ -1,9 +1,10 @@
-/** Race timer HUD. Big live clock during the run; result panel on finish.
- * Also hosts the temporary debug tuning panel (DEBUG_HUD in flags.ts). */
+/** Race HUD — live clock, finish panel, on-screen restart button.
+ * Also hosts the desktop-only debug tuning panel (DEBUG_HUD in flags.ts). */
 import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 import { Color4 } from '@dcl/sdk/math'
+import { InputAction } from '@dcl/sdk/ecs'
 import { DEBUG_HUD } from './flags'
-import { debugHud } from './vehicle'
+import { debugHud, requestRespawn } from './vehicle'
 
 export const raceHud = {
   phase: 'idle' as 'idle' | 'running' | 'finished',
@@ -26,18 +27,20 @@ function fmt(t: number): string {
   return `${p2(m)}:${p2(s)}.${p3(ms)}`
 }
 
+const GREEN = Color4.create(0.5, 1, 0.7, 1)
+
 const Clock = () => (
   <UiEntity
-    uiTransform={{ positionType: 'absolute', position: { top: 24 }, width: '100%', height: 90, justifyContent: 'center' }}
+    uiTransform={{ positionType: 'absolute', position: { top: 20 }, width: '100%', height: 84, justifyContent: 'center' }}
   >
     <Label
       value={fmt(raceHud.time)}
-      fontSize={64}
+      fontSize={58}
       font="monospace"
-      color={raceHud.phase === 'finished' ? Color4.create(0.5, 1, 0.7, 1) : Color4.create(1, 1, 1, 1)}
+      color={raceHud.phase === 'finished' ? GREEN : Color4.White()}
       textAlign="middle-center"
-      uiTransform={{ width: 420, height: 84 }}
-      uiBackground={{ color: Color4.create(0, 0, 0, 0.45) }}
+      uiTransform={{ width: 380, height: 80 }}
+      uiBackground={{ color: Color4.create(0, 0, 0, 0.5) }}
     />
   </UiEntity>
 )
@@ -48,18 +51,18 @@ const ResultPanel = () => {
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { top: 150 },
+        position: { top: 170 },
         width: '100%',
-        height: 220,
+        height: 210,
         flexDirection: 'column',
         alignItems: 'center'
       }}
     >
       <UiEntity
-        uiTransform={{ width: 420, height: 200, flexDirection: 'column', alignItems: 'center', padding: 16 }}
-        uiBackground={{ color: Color4.create(0, 0, 0, 0.6) }}
+        uiTransform={{ width: 380, height: 196, flexDirection: 'column', alignItems: 'center', padding: 14 }}
+        uiBackground={{ color: Color4.create(0, 0, 0, 0.62) }}
       >
-        <Label value="FINISH" fontSize={30} color={Color4.create(0.5, 1, 0.7, 1)} uiTransform={{ width: '100%', height: 40 }} textAlign="middle-center" />
+        <Label value="FINISH" fontSize={28} color={GREEN} uiTransform={{ width: '100%', height: 38 }} textAlign="middle-center" />
         <Label
           value={`time   ${fmt(raceHud.last)}`}
           fontSize={26}
@@ -76,11 +79,39 @@ const ResultPanel = () => {
           uiTransform={{ width: '100%', height: 36 }}
           textAlign="middle-center"
         />
-        <Label value="F — restart" fontSize={20} color={Color4.create(0.75, 0.75, 0.75, 1)} uiTransform={{ width: '100%', height: 32 }} textAlign="middle-center" />
+        <Label
+          value="tap RESTART to race again"
+          fontSize={18}
+          color={Color4.create(0.75, 0.75, 0.75, 1)}
+          uiTransform={{ width: '100%', height: 30 }}
+          textAlign="middle-center"
+        />
       </UiEntity>
     </UiEntity>
   )
 }
+
+// Bottom-right thumb zone. Native joystick sits bottom-left; native buttons are
+// hidden (setupMobileControls), so this corner is clear. IA_PRIMARY = the same
+// action F / E trigger on desktop, so vehicle.ts already handles it; onMouseDown
+// is a direct backup in case a client does not honour uiInputBinding.
+const RestartButton = () => (
+  <UiEntity
+    uiTransform={{
+      positionType: 'absolute',
+      position: { bottom: 40, right: 40 },
+      width: 132,
+      height: 132,
+      justifyContent: 'center',
+      alignItems: 'center',
+      pointerFilter: 'block'
+    }}
+    uiBackground={{ color: Color4.create(0.85, 0.22, 0.28, 0.85) }}
+    uiText={{ value: 'RESTART', fontSize: 20, color: Color4.White(), textAlign: 'middle-center' }}
+    uiInputBinding={{ actions: [InputAction.IA_PRIMARY] }}
+    onMouseDown={requestRespawn}
+  />
+)
 
 function dbgRow(text: string) {
   return (
@@ -95,7 +126,6 @@ function dbgRow(text: string) {
   )
 }
 
-// Left side, ~34% down — clear of the centre-top clock and the right-side DCL HUD.
 const DebugPanel = () => {
   if (!DEBUG_HUD) return <UiEntity uiTransform={{ display: 'none' }} />
   return (
@@ -121,9 +151,17 @@ const DebugPanel = () => {
 }
 
 const Hud = () => (
-  <UiEntity uiTransform={{ width: '100%', height: '100%' }}>{[Clock(), ResultPanel(), DebugPanel()]}</UiEntity>
+  <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
+    {[Clock(), ResultPanel(), RestartButton(), DebugPanel()]}
+  </UiEntity>
 )
 
 export function setupRaceHud() {
-  ReactEcsRenderer.setUiRenderer(Hud, { virtualWidth: 1920, virtualHeight: 1080 })
+  // 'interactable' keeps the HUD clear of the client's own UI (minimap, chat,
+  // left controls); device safe-area insets apply on top automatically on 7.26+.
+  ReactEcsRenderer.setUiRenderer(Hud, {
+    virtualWidth: 1920,
+    virtualHeight: 1080,
+    screenInset: 'interactable'
+  })
 }

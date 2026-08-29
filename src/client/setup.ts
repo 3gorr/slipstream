@@ -5,6 +5,7 @@ import { buildTestPad } from './testpad'
 import { startVehicle } from './vehicle'
 import { startRace } from './race'
 import { startGhost } from './ghost'
+import { setupMobileControls } from './mobile'
 
 export function startClient() {
   console.log('[CLIENT] setup')
@@ -12,6 +13,7 @@ export function startClient() {
   else buildTrack()
   startVehicle()
   if (!TEST_FLAT) {
+    setupMobileControls()
     startRace()
     startGhost()
   }

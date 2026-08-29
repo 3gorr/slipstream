@@ -43,7 +43,7 @@ import {
   trackCentreAt,
   trackOffsetAt
 } from '../shared/track'
-import { TEST_FLAT } from './flags'
+import { TEST_FLAT, DEBUG_HUD } from './flags'
 import { TESTPAD_SPAWN, TESTPAD_LOOK } from './testpad'
 import { hudState, setupVehicleHud } from './vehicle-hud'
 
@@ -303,6 +303,11 @@ function driveSystem(dt: number) {
   }
 }
 
+/** Restart the run — F / E on desktop, the on-screen button on mobile. */
+export function requestRespawn() {
+  respawn()
+}
+
 function inputSystemTick() {
   if (
     inputSystem.isTriggered(InputAction.IA_SECONDARY, PointerEventType.PET_DOWN) ||
@@ -310,9 +315,11 @@ function inputSystemTick() {
   ) {
     respawn()
   }
-  // live tuning, logged to console:
-  //   keys 1/2 → seamPin  (extra down-pin at the floor seams)  ±0.2
-  //   keys 3/4 → pinForce  (constant base down-pin)            ±0.1
+
+  // Live tuning keys — desktop debug only. Gated on DEBUG_HUD so the number-key
+  // actions (which map to on-screen buttons on mobile) do nothing in the build
+  // judges play. The buttons themselves are hidden by setupMobileControls().
+  if (!DEBUG_HUD) return
   if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) {
     seamPin = Math.max(0, Math.round((seamPin - 0.2) * 10) / 10)
     console.log('[CLIENT] seamPin =', seamPin)
