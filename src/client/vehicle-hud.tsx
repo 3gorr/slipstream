@@ -37,9 +37,9 @@ const Hud = () => (
       uiBackground={{ color: Color4.create(0, 0, 0, 0.55) }}
     >
       {row(`SPEED     ${hudState.speed.toFixed(1)} m/s  ${hudState.throttle ? '[gas]' : ''}`, 0)}
-      {row(`steer/s   ${hudState.steerRate.toFixed(0)} deg   [1 / 2]`, 1)}
-      {row(`accel     ${hudState.accelForce.toFixed(0)}   [3 / 4]`, 2)}
-      {row(`W forward   A/D steer   F respawn`, 3)}
+      {row(`steer/s   ${hudState.steerRate.toFixed(0)} deg   [3 / 4]`, 1)}
+      {row(`accel     ${hudState.accelForce.toFixed(0)}`, 2)}
+      {row(`W forward   A/D steer   F respawn   1/2 wallBrake`, 3)}
     </UiEntity>
   </UiEntity>
 )

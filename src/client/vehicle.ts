@@ -30,16 +30,28 @@ import {
 } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion, Color3, Color4 } from '@dcl/sdk/math'
 import { movePlayerTo } from '~system/RestrictedActions'
-import { SPAWN, SPAWN_LOOK, SPAWN_GRACE, RUNOUT_END_Z } from '../shared/track'
+import {
+  SPAWN,
+  SPAWN_LOOK,
+  SPAWN_GRACE,
+  RUNOUT_END_Z,
+  RUNOUT_Y,
+  HALF_LANE,
+  segmentAtZ,
+  trackCentreAt,
+  trackOffsetAt
+} from '../shared/track'
 import { TEST_FLAT } from './flags'
 import { TESTPAD_SPAWN, TESTPAD_LOOK } from './testpad'
 import { hudState, setupVehicleHud } from './vehicle-hud'
 
 // ---- tuning (live in TEST_FLAT via 1/2/3/4) --------------------------
 
-let steerRate = 90 // deg/s
-let accelForce = 120 // continuous / throttled push
+let steerRate = 70 // deg/s — moderate; the track is built for wide, flowing turns
+let accelForce = 110 // continuous / throttled push
 const SPHERE_R = 1.0
+let wallBrake = 0.7 // × accelForce, opposing ALONG-track speed while scraping a wall
+let pinForce = 0.35 // × accelForce, constant downward — keeps the sphere glued to the surface over joints
 const CAM_BACK = 7
 const CAM_UP = 4.5
 // The camera rig is PARENTED to the player, so its position moves rigidly with
@@ -57,10 +69,13 @@ let heading = 0 // radians, 0 = +Z
 let rollAngle = 0 // radians, visual only
 let prevPos: Vector3 | undefined
 let graceTimer = SPAWN_GRACE
-let placed = false // one-shot: move the player onto the active surface at start
+let placeDelay = 0.4 // wait this long before the one-shot placement, so the track colliders are live
+let placed = false
 let emaSpeed = 0
 
 const forceEntity = engine.addEntity()
+const wallBrakeEntity = engine.addEntity()
+const pinEntity = engine.addEntity()
 let sphere: Entity
 let camRig: Entity
 let camEntity: Entity
@@ -109,6 +124,8 @@ function respawn() {
   emaSpeed = 0
   graceTimer = SPAWN_GRACE
   Physics.removeForceFromPlayer(forceEntity)
+  Physics.removeForceFromPlayer(wallBrakeEntity)
+  Physics.removeForceFromPlayer(pinEntity)
   void movePlayerTo({ newRelativePosition: activeSpawn, cameraTarget: activeLook })
 }
 
@@ -118,16 +135,46 @@ function driveSystem(dt: number) {
   if (dt <= 0 || !Transform.has(engine.PlayerEntity)) return
   const p = Transform.get(engine.PlayerEntity).position
 
+  // one-shot placement, delayed so the freshly-built track colliders are live
   if (!placed) {
+    placeDelay -= dt
+    if (placeDelay > 0) return
     placed = true
     respawn()
     return
   }
 
-  // safety: pull back before leaving scene bounds (movePlayerTo needs the player in bounds)
-  if (graceTimer <= 0 && (p.z < 1 || p.z > RUNOUT_END_Z - 2 || p.y < 0 || p.x < 1 || p.x > 15)) {
-    respawn()
-    return
+  // --- escape check: measured against the LANE CENTRE, not world bounds — the
+  // track legitimately weaves close to the scene edges (walls reach X ≈ 15.8).
+  if (!TEST_FLAT) {
+    const centre = trackCentreAt(p.z)
+    const offset = trackOffsetAt(p) // signed lateral distance from the centreline
+    const below = centre.y - p.y // how far under the surface the player is
+
+    let reason = ''
+    let catastrophic = false
+    if (below > 5) {
+      reason = `fell through floor (${below.toFixed(1)} m below surface)`
+      catastrophic = true
+    } else if (p.y < RUNOUT_Y - 15) {
+      reason = `void (y ${p.y.toFixed(1)})`
+      catastrophic = true
+    } else if (Math.abs(offset) > HALF_LANE + 3) {
+      reason = `off lane (offset ${offset.toFixed(1)} m)`
+    } else if (p.z < 1) {
+      reason = `behind start (z ${p.z.toFixed(1)})`
+    } else if (p.z > RUNOUT_END_Z + 1) {
+      reason = `past finish (z ${p.z.toFixed(1)})`
+    }
+
+    if (reason !== '' && (catastrophic || graceTimer <= 0)) {
+      console.log(
+        `[CLIENT] auto-respawn: ${reason}  @ player (${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)})` +
+          `  surfaceY ${centre.y.toFixed(1)}`
+      )
+      respawn()
+      return
+    }
   }
 
   // steering
@@ -141,21 +188,50 @@ function driveSystem(dt: number) {
   if (graceTimer > 0) {
     graceTimer -= dt
     Physics.removeForceFromPlayer(forceEntity)
-  } else if (throttling) {
-    Physics.applyForceToPlayer(forceEntity, Vector3.create(Math.sin(heading), 0, Math.cos(heading)), accelForce)
+    Physics.removeForceFromPlayer(pinEntity)
   } else {
-    Physics.removeForceFromPlayer(forceEntity)
+    if (throttling) {
+      Physics.applyForceToPlayer(forceEntity, Vector3.create(Math.sin(heading), 0, Math.cos(heading)), accelForce)
+    } else {
+      Physics.removeForceFromPlayer(forceEntity)
+    }
+    // constant down-pin so the sphere doesn't lift off over the (concave) joints
+    if (!TEST_FLAT && pinForce > 0) {
+      Physics.applyForceToPlayer(pinEntity, Vector3.create(0, -1, 0), accelForce * pinForce)
+    } else {
+      Physics.removeForceFromPlayer(pinEntity)
+    }
   }
 
   // visual roll + speed from horizontal distance moved
+  let vx = 0
+  let vz = 0
   if (prevPos) {
-    const dx = p.x - prevPos.x
-    const dz = p.z - prevPos.z
-    const ds = Math.sqrt(dx * dx + dz * dz)
+    vx = (p.x - prevPos.x) / dt
+    vz = (p.z - prevPos.z) / dt
+    const ds = Math.sqrt((p.x - prevPos.x) ** 2 + (p.z - prevPos.z) ** 2)
     rollAngle += ds / SPHERE_R
     emaSpeed = emaSpeed * 0.85 + (ds / dt) * 0.15
   }
   prevPos = Vector3.create(p.x, p.y, p.z)
+
+  // wall brake: scraping a wall bleeds ALONG-track speed only — a bad line costs
+  // you momentum, but you can still steer off the wall freely (no pull toward it).
+  if (!TEST_FLAT && graceTimer <= 0) {
+    let braking = false
+    if (Math.abs(trackOffsetAt(p)) > HALF_LANE - SPHERE_R - 0.3) {
+      const seg = segmentAtZ(p.z)
+      const fl = Math.sqrt(seg.dir.x * seg.dir.x + seg.dir.z * seg.dir.z) || 1
+      const fx = seg.dir.x / fl
+      const fz = seg.dir.z / fl
+      const along = vx * fx + vz * fz // signed forward speed
+      if (along > 0.3) {
+        Physics.applyForceToPlayer(wallBrakeEntity, Vector3.create(-fx, 0, -fz), accelForce * wallBrake)
+        braking = true
+      }
+    }
+    if (!braking) Physics.removeForceFromPlayer(wallBrakeEntity)
+  }
 
   // The sphere and the camera rig are both PARENTED to the player, so their
   // position is inherited by the engine each frame — no per-frame chase. We only
@@ -191,11 +267,23 @@ function inputSystemTick() {
   ) {
     respawn()
   }
-  if (!TEST_FLAT) return
-  if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) steerRate = Math.max(15, steerRate - 15)
-  if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) steerRate = Math.min(360, steerRate + 15)
-  if (inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) accelForce = Math.max(20, accelForce - 20)
-  if (inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) accelForce = Math.min(600, accelForce + 20)
+  // live tuning (keys 1/2 = wall brake, 3/4 = down-pin), logged to console
+  if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) {
+    wallBrake = Math.max(0, Math.round((wallBrake - 0.1) * 10) / 10)
+    console.log('[CLIENT] wallBrake =', wallBrake)
+  }
+  if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) {
+    wallBrake = Math.min(3, Math.round((wallBrake + 0.1) * 10) / 10)
+    console.log('[CLIENT] wallBrake =', wallBrake)
+  }
+  if (inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) {
+    pinForce = Math.max(0, Math.round((pinForce - 0.1) * 10) / 10)
+    console.log('[CLIENT] pinForce =', pinForce)
+  }
+  if (inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) {
+    pinForce = Math.min(2, Math.round((pinForce + 0.1) * 10) / 10)
+    console.log('[CLIENT] pinForce =', pinForce)
+  }
 }
 
 export function startVehicle() {

@@ -5,4 +5,4 @@
  * chute, to practise steering without rolling off the end. Set false to restore
  * the real track with no other changes.
  */
-export const TEST_FLAT = true
+export const TEST_FLAT = false
