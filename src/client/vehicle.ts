@@ -88,6 +88,14 @@ export const debugHud = {
   fps: 0
 }
 
+/**
+ * `launched` = the post-spawn grace has ended and the drive force is now on. It
+ * is the single fair "the player really started" moment — deterministic every
+ * run (fixed spawn, fixed SPAWN_GRACE). The ghost keys record + playback to this,
+ * NOT to the race phase (which flips a bit later, once the player has moved).
+ */
+export const vehicleState = { launched: false }
+
 const forceEntity = engine.addEntity()
 const wallBrakeEntity = engine.addEntity()
 const pinEntity = engine.addEntity()
@@ -138,6 +146,7 @@ function respawn() {
   prevPos = undefined
   emaSpeed = 0
   graceTimer = SPAWN_GRACE
+  vehicleState.launched = false
   Physics.removeForceFromPlayer(forceEntity)
   Physics.removeForceFromPlayer(wallBrakeEntity)
   Physics.removeForceFromPlayer(pinEntity)
@@ -204,10 +213,13 @@ function driveSystem(dt: number) {
   if (graceTimer > 0) {
     graceTimer -= dt
     Physics.removeForceFromPlayer(forceEntity)
-  } else if (throttling) {
-    Physics.applyForceToPlayer(forceEntity, Vector3.create(Math.sin(heading), 0, Math.cos(heading)), accelForce)
   } else {
-    Physics.removeForceFromPlayer(forceEntity)
+    vehicleState.launched = true // grace over — the fair start moment (idempotent)
+    if (throttling) {
+      Physics.applyForceToPlayer(forceEntity, Vector3.create(Math.sin(heading), 0, Math.cos(heading)), accelForce)
+    } else {
+      Physics.removeForceFromPlayer(forceEntity)
+    }
   }
 
   // visual roll + speed from horizontal distance moved

@@ -4,11 +4,15 @@ import { buildTrack } from './track'
 import { buildTestPad } from './testpad'
 import { startVehicle } from './vehicle'
 import { startRace } from './race'
+import { startGhost } from './ghost'
 
 export function startClient() {
   console.log('[CLIENT] setup')
   if (TEST_FLAT) buildTestPad()
   else buildTrack()
   startVehicle()
-  if (!TEST_FLAT) startRace()
+  if (!TEST_FLAT) {
+    startRace()
+    startGhost()
+  }
 }
