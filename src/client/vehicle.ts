@@ -37,6 +37,8 @@ import {
   RUNOUT_END_Z,
   RUNOUT_Y,
   HALF_LANE,
+  SEAM_Z,
+  SEAM_ZONE,
   segmentAtZ,
   trackCentreAt,
   trackOffsetAt
@@ -51,7 +53,9 @@ let steerRate = 70 // deg/s — moderate; the track is built for wide, flowing t
 let accelForce = 110 // continuous / throttled push
 const SPHERE_R = 1.0
 let wallBrake = 0.7 // × accelForce, opposing ALONG-track speed while scraping a wall
-let pinForce = 0.35 // × accelForce, constant downward — keeps the sphere glued to the surface over joints
+let pinForce = 0.5 // × accelForce, constant downward — keeps the sphere on the surface everywhere
+let seamPin = 1.0 // × accelForce, EXTRA downward within ±SEAM_ZONE of a floor seam,
+//                    scaled up with speed (× (1 + 0.06 · speed)) so fast passes get pinned harder
 const CAM_BACK = 7
 const CAM_UP = 4.5
 // The camera rig is PARENTED to the player, so its position moves rigidly with
@@ -72,6 +76,17 @@ let graceTimer = SPAWN_GRACE
 let placeDelay = 0.4 // wait this long before the one-shot placement, so the track colliders are live
 let placed = false
 let emaSpeed = 0
+let emaFps = 60
+
+/** live values for the debug tuning panel (rendered by race-hud when DEBUG_HUD) */
+export const debugHud = {
+  seamPin: 0,
+  pinForce: 0,
+  steerRate: 0,
+  wallBrake: 0,
+  speed: 0,
+  fps: 0
+}
 
 const forceEntity = engine.addEntity()
 const wallBrakeEntity = engine.addEntity()
@@ -134,6 +149,7 @@ function respawn() {
 function driveSystem(dt: number) {
   if (dt <= 0 || !Transform.has(engine.PlayerEntity)) return
   const p = Transform.get(engine.PlayerEntity).position
+  emaFps = emaFps * 0.9 + (1 / dt) * 0.1
 
   // one-shot placement, delayed so the freshly-built track colliders are live
   if (!placed) {
@@ -188,32 +204,40 @@ function driveSystem(dt: number) {
   if (graceTimer > 0) {
     graceTimer -= dt
     Physics.removeForceFromPlayer(forceEntity)
-    Physics.removeForceFromPlayer(pinEntity)
+  } else if (throttling) {
+    Physics.applyForceToPlayer(forceEntity, Vector3.create(Math.sin(heading), 0, Math.cos(heading)), accelForce)
   } else {
-    if (throttling) {
-      Physics.applyForceToPlayer(forceEntity, Vector3.create(Math.sin(heading), 0, Math.cos(heading)), accelForce)
-    } else {
-      Physics.removeForceFromPlayer(forceEntity)
-    }
-    // constant down-pin so the sphere doesn't lift off over the (concave) joints
-    if (!TEST_FLAT && pinForce > 0) {
-      Physics.applyForceToPlayer(pinEntity, Vector3.create(0, -1, 0), accelForce * pinForce)
-    } else {
-      Physics.removeForceFromPlayer(pinEntity)
-    }
+    Physics.removeForceFromPlayer(forceEntity)
   }
 
   // visual roll + speed from horizontal distance moved
   let vx = 0
   let vz = 0
+  let speed = 0
   if (prevPos) {
     vx = (p.x - prevPos.x) / dt
     vz = (p.z - prevPos.z) / dt
     const ds = Math.sqrt((p.x - prevPos.x) ** 2 + (p.z - prevPos.z) ** 2)
+    speed = ds / dt
     rollAngle += ds / SPHERE_R
-    emaSpeed = emaSpeed * 0.85 + (ds / dt) * 0.15
+    emaSpeed = emaSpeed * 0.85 + speed * 0.15
   }
   prevPos = Vector3.create(p.x, p.y, p.z)
+
+  // down-pin: constant base everywhere, plus a stronger speed-scaled boost within
+  // ±SEAM_ZONE of a floor seam so the sphere rides the step-down without lifting.
+  if (!TEST_FLAT && graceTimer <= 0) {
+    let pin = pinForce
+    for (const sz of SEAM_Z) {
+      if (Math.abs(p.z - sz) < SEAM_ZONE) {
+        pin += seamPin * (1 + 0.06 * speed)
+        break
+      }
+    }
+    Physics.applyForceToPlayer(pinEntity, Vector3.create(0, -1, 0), accelForce * pin)
+  } else {
+    Physics.removeForceFromPlayer(pinEntity)
+  }
 
   // wall brake: scraping a wall bleeds ALONG-track speed only — a bad line costs
   // you momentum, but you can still steer off the wall freely (no pull toward it).
@@ -257,6 +281,13 @@ function driveSystem(dt: number) {
     hudState.accelForce = accelForce
     hudState.speed = emaSpeed
     hudState.throttle = throttling
+  } else {
+    debugHud.seamPin = seamPin
+    debugHud.pinForce = pinForce
+    debugHud.steerRate = steerRate
+    debugHud.wallBrake = wallBrake
+    debugHud.speed = emaSpeed
+    debugHud.fps = emaFps
   }
 }
 
@@ -267,21 +298,23 @@ function inputSystemTick() {
   ) {
     respawn()
   }
-  // live tuning (keys 1/2 = wall brake, 3/4 = down-pin), logged to console
+  // live tuning, logged to console:
+  //   keys 1/2 → seamPin  (extra down-pin at the floor seams)  ±0.2
+  //   keys 3/4 → pinForce  (constant base down-pin)            ±0.1
   if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) {
-    wallBrake = Math.max(0, Math.round((wallBrake - 0.1) * 10) / 10)
-    console.log('[CLIENT] wallBrake =', wallBrake)
+    seamPin = Math.max(0, Math.round((seamPin - 0.2) * 10) / 10)
+    console.log('[CLIENT] seamPin =', seamPin)
   }
   if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) {
-    wallBrake = Math.min(3, Math.round((wallBrake + 0.1) * 10) / 10)
-    console.log('[CLIENT] wallBrake =', wallBrake)
+    seamPin = Math.min(4, Math.round((seamPin + 0.2) * 10) / 10)
+    console.log('[CLIENT] seamPin =', seamPin)
   }
   if (inputSystem.isTriggered(InputAction.IA_ACTION_5, PointerEventType.PET_DOWN)) {
     pinForce = Math.max(0, Math.round((pinForce - 0.1) * 10) / 10)
     console.log('[CLIENT] pinForce =', pinForce)
   }
   if (inputSystem.isTriggered(InputAction.IA_ACTION_6, PointerEventType.PET_DOWN)) {
-    pinForce = Math.min(2, Math.round((pinForce + 0.1) * 10) / 10)
+    pinForce = Math.min(3, Math.round((pinForce + 0.1) * 10) / 10)
     console.log('[CLIENT] pinForce =', pinForce)
   }
 }

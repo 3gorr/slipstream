@@ -34,10 +34,11 @@ export const WALL_EXTEND = 2.5
 export const FLOOR_THICKNESS = 2.0
 // Extend each slab FORWARD only (never backward past its start joint). At a
 // concave joint the shallower slab then rides slightly proud past the joint and
-// the sphere steps DOWN ~5-9 cm onto the next slab (soft, pinForce holds it);
-// backward extension would instead poke UP into a lip the sphere slams into.
-// Convex (transition) joints come out seamless this way.
-export const FLOOR_FWD_EXTEND = 1.5
+// the sphere steps DOWN onto the next slab (soft, seam-pinned); backward
+// extension would instead poke UP into a lip the sphere slams into. Convex
+// (transition) joints come out seamless this way. Kept just long enough to also
+// close the mitre gap in the FLOOR at the yaw turns (~1.2 m at the wall).
+export const FLOOR_FWD_EXTEND = 1.3
 
 /** Ghost samples are stored in centimetres from this point. */
 export const TRACK_ORIGIN = Vector3.create(8, 0, 4)
@@ -110,6 +111,14 @@ export const SEGMENTS: TrackSegment[] = (() => {
   return out
 })()
 
+/**
+ * Z of the concave floor-slab joints (turn joints) where the forward-extended
+ * slabs leave a small step-down. The vehicle pins the sphere harder within
+ * ±SEAM_ZONE of these. The convex transition joints are seamless and not listed.
+ */
+export const SEAM_Z: number[] = JOINTS.slice(1, 4).map((j) => j.z)
+export const SEAM_ZONE = 3.5
+
 /** the segment whose Z range contains z (clamped to the ends) */
 export function segmentAtZ(z: number): TrackSegment {
   for (const s of SEGMENTS) if (z <= s.zHi) return s
@@ -165,7 +174,8 @@ export const SPAWN: Vector3 = Vector3.add(
 export const SPAWN_LOOK: Vector3 = Vector3.add(surfacePointAt(SEGMENTS[0].a.z + 28), Vector3.create(0, -1, 0))
 
 /**
- * Checkpoint plane Z positions for server-side timing (not wired yet).
- * First = start line, last = finish line.
+ * Checkpoint plane Z positions. First = start line, last = finish line (on the
+ * flat run-out, ~1.5 m before the end wall). Used by the client race timer now,
+ * server-side timing later.
  */
-export const CHECKPOINTS_Z = [8, 40, 78, 116, 150]
+export const CHECKPOINTS_Z = [8, 40, 78, 116, 156]

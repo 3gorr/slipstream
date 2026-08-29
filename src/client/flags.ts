@@ -6,3 +6,6 @@
  * the real track with no other changes.
  */
 export const TEST_FLAT = false
+
+/** Small on-screen tuning panel (real track only). Temporary — remove later. */
+export const DEBUG_HUD = false
