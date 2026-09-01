@@ -43,13 +43,17 @@ import {
   trackCentreAt,
   trackOffsetAt
 } from '../shared/track'
-import { TEST_FLAT, DEBUG_HUD } from './flags'
+import { TEST_FLAT, DEBUG_HUD, TOUCH_TUNE, CAM_FREEZE_TEST } from './flags'
 import { TESTPAD_SPAWN, TESTPAD_LOOK } from './testpad'
 import { hudState, setupVehicleHud } from './vehicle-hud'
+import { isMobile } from '@dcl/sdk/platform'
 
 // ---- tuning (live in TEST_FLAT via 1/2/3/4) --------------------------
 
-let steerRate = 70 // deg/s — moderate; the track is built for wide, flowing turns
+let steerRate = 70 // deg/s — desktop keys (A/D), digital
+// The analog touch joystick throws the sphere harder than a key tap; SDK7 gives
+// no analog joystick read, so it's just a lower digital rate on mobile.
+let touchSteerRate = 42 // deg/s — mobile joystick; live-tunable while TOUCH_TUNE
 let accelForce = 110 // continuous / throttled push
 const SPHERE_R = 1.0
 let wallBrake = 0.7 // × accelForce, opposing ALONG-track speed while scraping a wall
@@ -58,11 +62,12 @@ let seamPin = 1.0 // × accelForce, EXTRA downward within ±SEAM_ZONE of a floor
 //                    scaled up with speed (× (1 + 0.06 · speed)) so fast passes get pinned harder
 const CAM_BACK = 7
 const CAM_UP = 4.5
-// The camera rig is PARENTED to the player, so its position moves rigidly with
-// the player every frame — no per-frame chase, no one-frame lag, no jitter. Only
-// the rig's yaw eases toward the steering heading. CAM_SMOOTH is that easing:
-// per-frame slerp amount, 0..1; 1 = snap (no yaw smoothing).
-const CAM_SMOOTH = 0.25
+// Camera rig is PARENTED to the player (position rigid → no jitter). Its WORLD
+// yaw is forced to `heading` every frame by cancelling the parent rotation
+// exactly — so the avatar's own turning (the mobile joystick rotates the avatar)
+// does NOT swing the view. The camera entity has a FIXED local look-down rotation
+// and NO lookAtEntity, so the active VirtualCamera fully owns the view and the
+// client's native touch/mouse look never applies.
 
 const activeSpawn = TEST_FLAT ? TESTPAD_SPAWN : SPAWN
 const activeLook = TEST_FLAT ? TESTPAD_LOOK : SPAWN_LOOK
@@ -83,6 +88,7 @@ export const debugHud = {
   seamPin: 0,
   pinForce: 0,
   steerRate: 0,
+  touchSteer: 0,
   wallBrake: 0,
   speed: 0,
   fps: 0
@@ -100,7 +106,6 @@ const forceEntity = engine.addEntity()
 const wallBrakeEntity = engine.addEntity()
 const pinEntity = engine.addEntity()
 let sphere: Entity
-let camRig: Entity
 let camEntity: Entity
 
 // ---- build -------------------------------------------------------
@@ -126,15 +131,20 @@ function buildSphere() {
   })
 }
 
-function buildCamera() {
-  // rig parented to the player: rigid position, zero chase lag.
-  camRig = engine.addEntity()
-  Transform.create(camRig, { parent: engine.PlayerEntity })
+const FROZEN_CAM_ROT = Quaternion.lookRotation(Vector3.normalize(Vector3.create(0, -CAM_UP, CAM_BACK)))
 
-  // camera hangs off the rig at a fixed local offset (behind + above).
+/**
+ * Diagnostic (Sept) proved it: an UNPARENTED, manually-driven VirtualCamera
+ * fully owns the view on mobile — the joystick does NOT rotate it. The earlier
+ * swing came from the camera rig being a CHILD of engine.PlayerEntity: the
+ * avatar turns with the joystick, the rig inherited that rotation, and our
+ * per-frame inverse-cancel was always a frame stale against the render-time
+ * parent transform. So: no parent. Drive position + rotation directly.
+ */
+function buildCamera() {
   camEntity = engine.addEntity()
-  Transform.create(camEntity, { parent: camRig, position: Vector3.create(0, CAM_UP, -CAM_BACK) })
-  VirtualCamera.create(camEntity, { lookAtEntity: engine.PlayerEntity })
+  Transform.create(camEntity, { position: Vector3.create(0, CAM_UP, -CAM_BACK), rotation: FROZEN_CAM_ROT })
+  VirtualCamera.create(camEntity, {})
   MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: camEntity })
 }
 
@@ -202,11 +212,12 @@ function driveSystem(dt: number) {
     }
   }
 
-  // steering
+  // steering — lower rate on the analog touch joystick than on desktop keys
   let steer = 0
   if (inputSystem.isPressed(InputAction.IA_LEFT)) steer -= 1
   if (inputSystem.isPressed(InputAction.IA_RIGHT)) steer += 1
-  heading += steer * ((steerRate * Math.PI) / 180) * dt
+  const rate = isMobile() ? touchSteerRate : steerRate
+  heading += steer * ((rate * Math.PI) / 180) * dt
 
   // drive force: held off during grace; on the flat pad only while W is held
   const throttling = TEST_FLAT ? inputSystem.isPressed(InputAction.IA_FORWARD) : true
@@ -269,24 +280,51 @@ function driveSystem(dt: number) {
     if (!braking) Physics.removeForceFromPlayer(wallBrakeEntity)
   }
 
-  // The sphere and the camera rig are both PARENTED to the player, so their
-  // position is inherited by the engine each frame — no per-frame chase. We only
-  // write LOCAL rotation, cancelling the avatar's own body yaw (which we don't
-  // control) so world yaw tracks `heading`.
+  // Sphere + camera rig are PARENTED to the player (position rigid, no jitter).
+  // We want their WORLD yaw to be exactly `heading`, independent of the avatar's
+  // own rotation (the joystick spins the avatar on mobile). Set LOCAL rotation to
+  // cancel the parent precisely:  local = inverse(playerRotation) · yaw(heading).
   const rp = Transform.get(engine.PlayerEntity).rotation
-  const playerYaw = Math.atan2(2 * (rp.w * rp.y + rp.x * rp.z), 1 - 2 * (rp.y * rp.y + rp.z * rp.z))
-  const localYawDeg = ((heading - playerYaw) * 180) / Math.PI
+  const invPlayer = Quaternion.create(-rp.x, -rp.y, -rp.z, rp.w) // conjugate = inverse (unit quat)
+  const headingWorld = Quaternion.fromEulerDegrees(0, (heading * 180) / Math.PI, 0)
+  const localYaw = Quaternion.multiply(invPlayer, headingWorld)
 
-  // sphere: local yaw to heading, then roll about local X. Position untouched.
+  // sphere: local yaw, then roll about local X. Position untouched.
   Transform.getMutable(sphere).rotation = Quaternion.multiply(
-    Quaternion.fromEulerDegrees(0, localYawDeg, 0),
+    localYaw,
     Quaternion.fromEulerDegrees((rollAngle * 180) / Math.PI, 0, 0)
   )
 
-  // camera rig: only the yaw eases toward heading.
-  const targetQ = Quaternion.fromEulerDegrees(0, localYawDeg, 0)
-  const rigT = Transform.getMutable(camRig)
-  rigT.rotation = CAM_SMOOTH >= 1 ? targetQ : Quaternion.slerp(rigT.rotation, targetQ, CAM_SMOOTH)
+  // camera: unparented, driven directly. Orbits behind `heading`, above; rotation
+  // either pinned (CAM_FREEZE_TEST) or aimed at the sphere.
+  const ct = Transform.getMutable(camEntity)
+  const camX = p.x - Math.sin(heading) * CAM_BACK
+  const camY = p.y + CAM_UP
+  const camZ = p.z - Math.cos(heading) * CAM_BACK
+  ct.position.x = camX
+  ct.position.y = camY
+  ct.position.z = camZ
+
+  if (CAM_FREEZE_TEST) {
+    ct.rotation.x = FROZEN_CAM_ROT.x
+    ct.rotation.y = FROZEN_CAM_ROT.y
+    ct.rotation.z = FROZEN_CAM_ROT.z
+    ct.rotation.w = FROZEN_CAM_ROT.w
+  } else {
+    const look = Quaternion.fromLookAt(
+      Vector3.create(camX, camY, camZ),
+      Vector3.create(p.x, p.y + SPHERE_R, p.z)
+    )
+    ct.rotation.x = look.x
+    ct.rotation.y = look.y
+    ct.rotation.z = look.z
+    ct.rotation.w = look.w
+  }
+
+  // re-assert our virtual camera every frame — some clients drop back to the
+  // default camera after a touch/look input.
+  const mc = MainCamera.getMutableOrNull(engine.CameraEntity)
+  if (mc && mc.virtualCameraEntity !== camEntity) mc.virtualCameraEntity = camEntity
 
   if (TEST_FLAT) {
     hudState.steerRate = steerRate
@@ -297,6 +335,7 @@ function driveSystem(dt: number) {
     debugHud.seamPin = seamPin
     debugHud.pinForce = pinForce
     debugHud.steerRate = steerRate
+    debugHud.touchSteer = touchSteerRate
     debugHud.wallBrake = wallBrake
     debugHud.speed = emaSpeed
     debugHud.fps = emaFps
@@ -314,6 +353,20 @@ function inputSystemTick() {
     inputSystem.isTriggered(InputAction.IA_PRIMARY, PointerEventType.PET_DOWN)
   ) {
     respawn()
+  }
+
+  // TOUCH_TUNE (temporary): buttons 1 / 2 nudge the mobile steer rate so it can
+  // be dialled in on a phone. Takes IA_ACTION_3/4 over the DEBUG_HUD seamPin use.
+  if (TOUCH_TUNE) {
+    if (inputSystem.isTriggered(InputAction.IA_ACTION_3, PointerEventType.PET_DOWN)) {
+      touchSteerRate = Math.max(10, touchSteerRate - 3)
+      console.log('[CLIENT] touchSteerRate =', touchSteerRate)
+    }
+    if (inputSystem.isTriggered(InputAction.IA_ACTION_4, PointerEventType.PET_DOWN)) {
+      touchSteerRate = Math.min(90, touchSteerRate + 3)
+      console.log('[CLIENT] touchSteerRate =', touchSteerRate)
+    }
+    return
   }
 
   // Live tuning keys — desktop debug only. Gated on DEBUG_HUD so the number-key

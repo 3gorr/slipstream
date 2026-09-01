@@ -9,3 +9,22 @@ export const TEST_FLAT = false
 
 /** Small on-screen tuning panel (real track only). Temporary — remove later. */
 export const DEBUG_HUD = false
+
+/**
+ * Temporary: show the touch-steer value + keep gamepad buttons 1/2 visible on
+ * mobile so TOUCH_STEER_RATE can be dialled in on a phone. Remove once set.
+ */
+export const TOUCH_TUNE = true
+
+/**
+ * DIAGNOSTIC: pin the camera's WORLD rotation to a constant forever — the rig
+ * never follows `heading`, camEntity is unparented, no lookAtEntity. Position
+ * still follows the player (pure translation). If the joystick STILL swings the
+ * view on mobile, it is DCL's native touch-look and unfixable from scene code.
+ * If the view goes rock-steady, our rig was the cause.
+ *
+ * RESULT (Sept): rock-steady — the rig was the cause. The camera is now
+ * unparented and driven directly; leave this false. Set true only to re-check
+ * against a fixed rotation.
+ */
+export const CAM_FREEZE_TEST = false
