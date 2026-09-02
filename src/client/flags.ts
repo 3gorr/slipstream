@@ -36,3 +36,10 @@ export const CAM_FREEZE_TEST = false
  */
 export const SHOW_TOUCH_TUNE = false
 export const SHOW_DEBUG_PANEL = false
+
+/**
+ * TEST: load the single continuous GLB floor (assets/track.glb) on top of the
+ * box-slab floor, to check whether it renders now that its bbox is inside the
+ * parcel bounds (max Z 157). The box slabs stay untouched — flip this off and
+ * the working floor is exactly as before.
+ */

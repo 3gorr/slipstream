@@ -1,17 +1,18 @@
 /**
  * Track geometry builder. One export: buildTrack().
  *
- * FLOOR: box slab per segment. Each slab's top face lies on its joint-to-joint
- * line and it is extended FORWARD only (see FLOOR_FWD_EXTEND) so joints have at
- * worst a small step-DOWN, never an upward lip. A seamless single-mesh floor
- * lives in assets/track.glb (+ scripts/gen-track-glb.mjs) for the art pass — the
- * DCL asset pipeline would not load it here.
+ * FLOOR: box slab per segment — visible (FLOOR_COLOR) and carries the PHYSICS
+ * collider the gyrosphere rolls on. Each slab's top face lies on its
+ * joint-to-joint line and it is extended FORWARD only (see FLOOR_FWD_EXTEND) so
+ * joints have at worst a small step-DOWN, never an upward lip.
+ *
+ * A seamless single-mesh floor lives in assets/track.glb (+ scripts/gen-track-glb.mjs)
+ * for a future art pass. It is NOT loaded: the engine builds no usable collider
+ * from that hand-authored trimesh (the sphere falls through), and on the night
+ * skybox the flat ribbon reads washed-out. Kept in the repo, not in the scene.
  *
  * WALLS + RAILS: box primitives, one pair per segment. Rails (emissive neon, no
  * collider) only on the turn segments.
- *
- * Mesh count: 5 floor + 5×2 walls + 3×2 rails + run-out slab + end wall +
- * 2 run-out side walls = 25 (the §6 ceiling).
  */
 import { engine, Transform, MeshRenderer, MeshCollider, Material, ColliderLayer } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion, Color3, Color4 } from '@dcl/sdk/math'

@@ -537,7 +537,7 @@
               }
             ],
             "skyboxConfig": {
-              "fixedTime": 68400
+              "fixedTime": 79200
             },
             "hideLandscapeTerrain": true
           }

@@ -20,5 +20,11 @@ export const JOINT_TUPLES: ReadonlyArray<readonly [number, number, number]> = [
 export const LANE_HALF = 4
 /** Floor slab depth (downward from the rolling surface), metres. */
 export const FLOOR_DEPTH = 2
-/** The GLB floor ribbon continues flat to here past the last joint. */
-export const RUNOUT_END = [8, 3.9, 160] as const
+/**
+ * The GLB floor ribbon continues flat to here past the last joint.
+ * GLB-only (imported solely by scripts/gen-track-glb.mjs) — gameplay uses the
+ * separate RUNOUT_END_Z in track.ts. Z stops at 157, a 3 m margin inside the
+ * scene's Z=160 outer edge: a mesh whose bbox touches the parcel border is
+ * dropped whole by the client (same bug the run-out slab hit at Z=160).
+ */
+export const RUNOUT_END = [8, 3.9, 157] as const
