@@ -22,6 +22,8 @@ import {
   Transform,
   MeshRenderer,
   Material,
+  TextShape,
+  Billboard,
   VisibilityComponent,
   MaterialTransparencyMode,
   type Entity
@@ -44,9 +46,15 @@ import { vehicleState } from './vehicle'
 const STEP = 1 / RECORD_HZ
 const SPHERE_R = 1.0
 const TWO_PI = Math.PI * 2
+const LABEL_Y = 1.8 // metres above the sphere centre — clears the sphere, stays off the track
 
 interface GhostPlayer {
   entity: Entity
+  /** floating name tag above the sphere (TextShape + Billboard), positioned by hand each frame */
+  label: Entity
+  /** display name — "" for the self ghost (no tag), the rival's name otherwise.
+   *  Read straight from this field; the server will fill it with real player names. */
+  name: string
   /** decoded track, or undefined for the self ghost until a best run exists */
   track: GhostTrack | undefined
   roll: number
@@ -128,9 +136,40 @@ function buildGhostSphere(rival: boolean): Entity {
   return e
 }
 
+/** floating name tag — its own entity (NOT parented: the sphere rolls, which would
+ *  swing a child around). Position is set by hand in ghostSystem. Billboard keeps
+ *  it facing the player from any angle. */
+function buildGhostLabel(name: string): Entity {
+  const e = engine.addEntity()
+  Transform.create(e, { position: Vector3.create(TRACK_ORIGIN.x, -50, TRACK_ORIGIN.z) })
+  TextShape.create(e, {
+    text: name,
+    fontSize: 4,
+    textColor: Color4.create(0.82, 0.9, 1, 1), // light blue — reads against the night track
+    outlineColor: Color4.create(0, 0, 0, 1),
+    outlineWidth: 0.18
+  })
+  Billboard.create(e, {}) // default BM_ALL — always square to the camera
+  VisibilityComponent.create(e, { visible: false })
+  return e
+}
+
 function setGhostVisible(gp: GhostPlayer, v: boolean) {
   gp.visible = v
   VisibilityComponent.getMutable(gp.entity).visible = v
+  // self ghost has name "" — never show a tag for it
+  VisibilityComponent.getMutable(gp.label).visible = v && gp.name.length > 0
+}
+
+/** keep the name tag hovering above the sphere. Called from ghostSystem (never
+ *  from playAt) — scalar writes only, no allocation. */
+function updateLabel(gp: GhostPlayer) {
+  if (gp.name.length === 0) return
+  const sp = Transform.get(gp.entity).position
+  const lt = Transform.getMutable(gp.label)
+  lt.position.x = sp.x
+  lt.position.y = sp.y + LABEL_Y
+  lt.position.z = sp.z
 }
 
 function resetGhostAccum(gp: GhostPlayer) {
@@ -257,7 +296,12 @@ function ghostSystem(dt: number) {
       setGhostVisible(ghosts[i], ghosts[i].track !== undefined)
     }
     pushSample() // sample 0, player at rest at the start line
-    for (let i = 0; i < ghosts.length; i++) if (ghosts[i].track) playAt(ghosts[i], 0)
+    for (let i = 0; i < ghosts.length; i++) {
+      if (ghosts[i].track) {
+        playAt(ghosts[i], 0)
+        updateLabel(ghosts[i])
+      }
+    }
     return
   }
 
@@ -275,13 +319,18 @@ function ghostSystem(dt: number) {
 
   for (let i = 0; i < ghosts.length; i++) {
     const gp = ghosts[i]
-    if (gp.visible && gp.track) playAt(gp, elapsed) // rivals always have a track
+    if (gp.visible && gp.track) {
+      playAt(gp, elapsed) // rivals always have a track
+      updateLabel(gp) // name tag follows the sphere — here, not in playAt
+    }
   }
 }
 
 export function startGhost() {
   selfGhost = {
     entity: buildGhostSphere(false),
+    label: buildGhostLabel(''), // no name tag for your own ghost
+    name: '',
     track: undefined,
     roll: 0,
     prevX: 0,
@@ -294,6 +343,8 @@ export function startGhost() {
   for (const b of BAKED_GHOSTS) {
     ghosts.push({
       entity: buildGhostSphere(true),
+      label: buildGhostLabel(b.name), // name straight from the data — server will supply real ones
+      name: b.name,
       track: decodeGhost(b.chunks),
       roll: 0,
       prevX: 0,
