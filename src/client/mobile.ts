@@ -15,11 +15,13 @@
  * engine.RootEntity. No-op on desktop, so it is safe to call unconditionally.
  */
 import { TouchScreenControls, InputAction } from '@dcl/sdk/ecs'
-import { TOUCH_TUNE } from './flags'
+import { SHOW_TOUCH_TUNE } from './flags'
 
 export function setupMobileControls() {
-  if (TOUCH_TUNE) {
-    // keep buttons "1" / "2" (IA_ACTION_3 / IA_ACTION_4) for TOUCH_STEER_RATE tuning
+  if (SHOW_TOUCH_TUNE) {
+    // keep buttons "1" / "2" (IA_ACTION_3 / IA_ACTION_4) for TOUCH_STEER_RATE
+    // tuning on a phone. Gated by the same flag as TouchTunePanel — a judge
+    // never sees these; the nudge logic itself lives in vehicle.ts.
     TouchScreenControls.hide([
       InputAction.IA_POINTER,
       InputAction.IA_PRIMARY,
@@ -33,5 +35,5 @@ export function setupMobileControls() {
   }
   TouchScreenControls.hideCrosshair() // nothing to aim at
   TouchScreenControls.showJoystick() // keep it — the only steering input on a phone
-  console.log('[CLIENT] mobile controls configured (TOUCH_TUNE=' + TOUCH_TUNE + ')')
+  console.log('[CLIENT] mobile controls configured (SHOW_TOUCH_TUNE=' + SHOW_TOUCH_TUNE + ')')
 }
