@@ -3,8 +3,9 @@
 import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 import { Color4 } from '@dcl/sdk/math'
 import { InputAction } from '@dcl/sdk/ecs'
-import { DEBUG_HUD, TOUCH_TUNE, SHOW_TOUCH_TUNE, SHOW_DEBUG_PANEL } from './flags'
+import { DEBUG_HUD, TOUCH_TUNE, SHOW_TOUCH_TUNE, SHOW_DEBUG_PANEL, SHOW_NET_DEBUG } from './flags'
 import { debugHud, requestRespawn } from './vehicle'
+import { netState } from './net'
 
 export const raceHud = {
   phase: 'idle' as 'idle' | 'running' | 'finished',
@@ -174,6 +175,27 @@ const TouchTunePanel = () => {
   )
 }
 
+// TEMP (B0): client↔server channel indicator. Top-left, small.
+const NetPanel = () => (
+  <UiEntity
+    uiTransform={{
+      positionType: 'absolute',
+      position: { top: 60, left: 24 },
+      width: 240,
+      height: 30,
+      justifyContent: 'flex-start',
+      alignItems: 'center'
+    }}
+    uiBackground={{ color: Color4.create(0, 0, 0, 0.6) }}
+    uiText={{
+      value: netState.serverConnected ? 'server: connected' : 'server: waiting…',
+      fontSize: 16,
+      color: netState.serverConnected ? Color4.create(0.5, 1, 0.7, 1) : Color4.create(1, 0.8, 0.4, 1),
+      textAlign: 'middle-left'
+    }}
+  />
+)
+
 const Hud = () => {
   // Clock / ResultPanel / RestartButton are the real race UI — always on.
   // The debug panels render only when their flag is set (flags.ts), so a judge
@@ -181,6 +203,7 @@ const Hud = () => {
   const panels = [Clock(), ResultPanel(), RestartButton()]
   if (SHOW_DEBUG_PANEL) panels.push(DebugPanel())
   if (SHOW_TOUCH_TUNE) panels.push(TouchTunePanel())
+  if (SHOW_NET_DEBUG) panels.push(NetPanel())
   return <UiEntity uiTransform={{ width: '100%', height: '100%' }}>{panels}</UiEntity>
 }
 

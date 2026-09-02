@@ -6,9 +6,11 @@ import { startVehicle } from './vehicle'
 import { startRace } from './race'
 import { startGhost } from './ghost'
 import { setupMobileControls } from './mobile'
+import { startNet } from './net'
 
 export function startClient() {
   console.log('[CLIENT] setup')
+  startNet() // B0: client↔server hello handshake (TEMP scaffolding)
   if (TEST_FLAT) buildTestPad()
   else buildTrack()
   startVehicle()

@@ -7,6 +7,7 @@ import './shared/messages'
 export function main() {
   if (isServer()) {
     console.log('[SERVER] up')
+    void import('./server/server').then((m) => m.startServer())
   } else {
     console.log('[CLIENT] up')
     void import('./client/setup').then((m) => m.startClient())
