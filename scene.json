@@ -41,13 +41,13 @@
       "name": "start",
       "default": true,
       "position": {
-        "x": 8.51,
-        "y": 34.37,
-        "z": 10.09
+        "x": 8.510000228881836,
+        "y": 34.369998931884766,
+        "z": 10.09000015258789
       },
       "cameraTarget": {
-        "x": 10.33,
-        "y": 29.11,
+        "x": 10.329999923706055,
+        "y": 29.110000610351562,
         "z": 32
       }
     }
@@ -62,7 +62,9 @@
     "nearbyVoiceChat": "enabled"
   },
   "creator": "",
-  "skyboxConfig": {},
+  "skyboxConfig": {
+    "fixedTime": 68400
+  },
   "landscapeTerrain": false,
   "source": {
     "origin": "creator-hub",

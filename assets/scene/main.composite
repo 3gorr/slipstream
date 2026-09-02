@@ -460,9 +460,12 @@
               "sports"
             ],
             "author": "Slipstream team",
-            "email": "",
             "tags": [],
             "layout": {
+              "base": {
+                "x": 0,
+                "y": 0
+              },
               "parcels": [
                 {
                   "x": 0,
@@ -504,11 +507,7 @@
                   "x": 0,
                   "y": 9
                 }
-              ],
-              "base": {
-                "x": 0,
-                "y": 0
-              }
+              ]
             },
             "silenceVoiceChat": true,
             "disablePortableExperiences": true,
@@ -519,27 +518,27 @@
                 "position": {
                   "x": {
                     "$case": "single",
-                    "value": 8.51
+                    "value": 8.510000228881836
                   },
                   "y": {
                     "$case": "single",
-                    "value": 34.37
+                    "value": 34.369998931884766
                   },
                   "z": {
                     "$case": "single",
-                    "value": 10.09
+                    "value": 10.09000015258789
                   }
                 },
                 "cameraTarget": {
-                  "x": 10.33,
-                  "y": 29.11,
+                  "x": 10.329999923706055,
+                  "y": 29.110000610351562,
                   "z": 32
                 }
               }
             ],
-            "skyboxConfig": {},
-            "creator": "",
-            "disableNearbyVoiceChat": false,
+            "skyboxConfig": {
+              "fixedTime": 68400
+            },
             "hideLandscapeTerrain": true
           }
         }
