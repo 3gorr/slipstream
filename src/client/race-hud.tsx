@@ -3,7 +3,7 @@
 import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 import { Color4 } from '@dcl/sdk/math'
 import { InputAction } from '@dcl/sdk/ecs'
-import { DEBUG_HUD } from './flags'
+import { DEBUG_HUD, TOUCH_TUNE, SHOW_TOUCH_TUNE, SHOW_DEBUG_PANEL } from './flags'
 import { debugHud, requestRespawn } from './vehicle'
 
 export const raceHud = {
@@ -150,11 +150,39 @@ const DebugPanel = () => {
   )
 }
 
-const Hud = () => (
-  <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
-    {[Clock(), ResultPanel(), RestartButton(), DebugPanel()]}
-  </UiEntity>
-)
+// Temporary: touch-steer calibration readout (TOUCH_TUNE). Top-left, small.
+const TouchTunePanel = () => {
+  if (!TOUCH_TUNE) return <UiEntity uiTransform={{ display: 'none' }} />
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { top: 116, left: 24 },
+        width: 236,
+        height: 34,
+        justifyContent: 'center',
+        alignItems: 'center'
+      }}
+      uiBackground={{ color: Color4.create(0, 0, 0, 0.55) }}
+      uiText={{
+        value: `touch steer ${debugHud.touchSteer.toFixed(0)}   [1 / 2]`,
+        fontSize: 18,
+        color: Color4.create(0.8, 1, 0.9, 1),
+        textAlign: 'middle-center'
+      }}
+    />
+  )
+}
+
+const Hud = () => {
+  // Clock / ResultPanel / RestartButton are the real race UI — always on.
+  // The debug panels render only when their flag is set (flags.ts), so a judge
+  // never sees them.
+  const panels = [Clock(), ResultPanel(), RestartButton()]
+  if (SHOW_DEBUG_PANEL) panels.push(DebugPanel())
+  if (SHOW_TOUCH_TUNE) panels.push(TouchTunePanel())
+  return <UiEntity uiTransform={{ width: '100%', height: '100%' }}>{panels}</UiEntity>
+}
 
 export function setupRaceHud() {
   // 'interactable' keeps the HUD clear of the client's own UI (minimap, chat,

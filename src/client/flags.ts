@@ -28,3 +28,11 @@ export const TOUCH_TUNE = true
  * against a fixed rotation.
  */
 export const CAM_FREEZE_TEST = false
+
+/**
+ * HUD gating: the debug panels are dev-only and must never be on screen for a
+ * judge. Both default false. Flip SHOW_TOUCH_TUNE to true to bring back the
+ * touch-steer readout while dialling in TOUCH_STEER_RATE on a phone.
+ */
+export const SHOW_TOUCH_TUNE = false
+export const SHOW_DEBUG_PANEL = false

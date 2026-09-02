@@ -9,7 +9,8 @@
     "upgrade-sdk": "npm install --save-dev @dcl/sdk@latest",
     "upgrade-sdk:next": "npm install --save-dev @dcl/sdk@next",
     "server-logs": "sdk-commands sdk-server-logs",
-    "gen-track": "node scripts/gen-track-glb.mjs"
+    "gen-track": "node scripts/gen-track-glb.mjs",
+    "bake-ghosts": "node scripts/gen-ghosts.mjs"
   },
   "devDependencies": {
     "@dcl/js-runtime": "7.26.1-32860802198.commit-dae48fb",

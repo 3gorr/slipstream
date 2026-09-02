@@ -14,11 +14,24 @@
  * TouchScreenControls is the confirmed component name (SDK 7.26.0+), set on
  * engine.RootEntity. No-op on desktop, so it is safe to call unconditionally.
  */
-import { engine, TouchScreenControls } from '@dcl/sdk/ecs'
+import { TouchScreenControls, InputAction } from '@dcl/sdk/ecs'
+import { TOUCH_TUNE } from './flags'
 
 export function setupMobileControls() {
-  TouchScreenControls.hideAll() // all 8 gamepad buttons — we draw our own restart
+  if (TOUCH_TUNE) {
+    // keep buttons "1" / "2" (IA_ACTION_3 / IA_ACTION_4) for TOUCH_STEER_RATE tuning
+    TouchScreenControls.hide([
+      InputAction.IA_POINTER,
+      InputAction.IA_PRIMARY,
+      InputAction.IA_SECONDARY,
+      InputAction.IA_JUMP,
+      InputAction.IA_ACTION_5,
+      InputAction.IA_ACTION_6
+    ])
+  } else {
+    TouchScreenControls.hideAll() // all 8 gamepad buttons — we draw our own restart
+  }
   TouchScreenControls.hideCrosshair() // nothing to aim at
   TouchScreenControls.showJoystick() // keep it — the only steering input on a phone
-  console.log('[CLIENT] mobile controls configured')
+  console.log('[CLIENT] mobile controls configured (TOUCH_TUNE=' + TOUCH_TUNE + ')')
 }

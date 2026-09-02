@@ -1,17 +1,21 @@
 /**
- * Best-run ghost. One export: startGhost().
+ * Ghosts. One export: startGhost().
  *
- *   - while the race is running: record the player transform at RECORD_HZ (8 Hz)
- *     through the shared codec, exactly as spike C did
- *   - on a finish that beat the session best: encode → decode the recording and
- *     keep it as the ghost track
- *   - on the next run: a translucent golden sphere replays that track, starting
- *     in sync with the player, Catmull-Rom interpolated (spike C playback)
- *   - first run (no best yet): no ghost
- *   - F / respawn: the ghost restarts from zero with the player
+ *   - SELF ghost: the player's own best run this session. Recorded live at
+ *     RECORD_HZ, encoded→decoded through the shared codec on a finish that beat
+ *     the session best, then replayed as a translucent GOLD sphere. Not shown
+ *     until a best exists.
+ *   - RIVAL ghosts: BAKED_GHOSTS (src/shared/bakedGhosts.ts), decoded once at
+ *     start, replayed as translucent BLUE spheres. Always have a track, so
+ *     always visible during a run. Their lane offset is already baked into the
+ *     samples — playback adds NOTHING, it plays the track as-is.
  *
- * Server-shared ghosts (six of them, from the leaderboard) come later; this is
- * the local self-ghost.
+ * All ghosts share one clock: `elapsed` seconds since the `launched` frame (grace
+ * over, player released). Every ghost starts playback at elapsed 0, so a matched
+ * run stays nose-to-nose. F / respawn restarts them all with the player.
+ *
+ * Playback (playAt) does ZERO allocation per frame — all scalar (§6). Next art
+ * step: one shared low-poly silhouette mesh + name billboards instead of spheres.
  */
 import {
   engine,
@@ -33,6 +37,7 @@ import {
   type GhostTrack
 } from '../shared/codec'
 import { TRACK_ORIGIN } from '../shared/track'
+import { BAKED_GHOSTS } from '../shared/bakedGhosts'
 import { raceHud } from './race-hud'
 import { vehicleState } from './vehicle'
 
@@ -40,19 +45,27 @@ const STEP = 1 / RECORD_HZ
 const SPHERE_R = 1.0
 const TWO_PI = Math.PI * 2
 
-let ghost: Entity | undefined
-let bestTrack: GhostTrack | undefined
+interface GhostPlayer {
+  entity: Entity
+  /** decoded track, or undefined for the self ghost until a best run exists */
+  track: GhostTrack | undefined
+  roll: number
+  prevX: number
+  prevZ: number
+  hasPrev: boolean
+  visible: boolean
+}
+
+/** ghosts[0] is always the self ghost; the rest are the baked rivals */
+const ghosts: GhostPlayer[] = []
+let selfGhost: GhostPlayer
+
 let bestMs = Infinity
 
 const recording: GhostSample[] = []
-// Both clocks below are "seconds since the launched frame" — identical reference
-// for record and playback, so a matched run stays nose-to-nose.
+// "seconds since the launched frame" — one clock for record + every playback.
 let elapsed = 0
 let nextSampleT = 0
-let ghostRoll = 0
-let ghostPrevX = 0
-let ghostPrevZ = 0
-let ghostHasPrev = false
 let prevLaunched = false
 let prevPhase: 'idle' | 'running' | 'finished' = 'idle'
 let promotedThisRun = false
@@ -84,46 +97,65 @@ function wrapPi(d: number): number {
 
 // ---- setup ---------------------------------------------------------
 
-function buildGhost() {
-  ghost = engine.addEntity()
-  Transform.create(ghost, {
+function buildGhostSphere(rival: boolean): Entity {
+  const e = engine.addEntity()
+  Transform.create(e, {
     position: Vector3.create(TRACK_ORIGIN.x, -50, TRACK_ORIGIN.z),
     scale: Vector3.create(SPHERE_R * 2, SPHERE_R * 2, SPHERE_R * 2)
   })
-  MeshRenderer.setSphere(ghost)
-  Material.setPbrMaterial(ghost, {
-    albedoColor: Color4.create(1, 0.82, 0.25, 0.16),
-    emissiveColor: Color3.create(1, 0.7, 0.15),
-    emissiveIntensity: 0.7,
-    metallic: 0,
-    roughness: 1,
-    transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND
-  })
-  VisibilityComponent.create(ghost, { visible: false })
+  MeshRenderer.setSphere(e)
+  Material.setPbrMaterial(
+    e,
+    rival
+      ? {
+          albedoColor: Color4.create(0.3, 0.55, 1, 0.16),
+          emissiveColor: Color3.create(0.25, 0.5, 1),
+          emissiveIntensity: 0.6,
+          metallic: 0,
+          roughness: 1,
+          transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND
+        }
+      : {
+          albedoColor: Color4.create(1, 0.82, 0.25, 0.16),
+          emissiveColor: Color3.create(1, 0.7, 0.15),
+          emissiveIntensity: 0.7,
+          metallic: 0,
+          roughness: 1,
+          transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND
+        }
+  )
+  VisibilityComponent.create(e, { visible: false })
+  return e
 }
 
-function setVisible(v: boolean) {
-  if (ghost) VisibilityComponent.getMutable(ghost).visible = v
+function setGhostVisible(gp: GhostPlayer, v: boolean) {
+  gp.visible = v
+  VisibilityComponent.getMutable(gp.entity).visible = v
+}
+
+function resetGhostAccum(gp: GhostPlayer) {
+  gp.roll = 0
+  gp.hasPrev = false
 }
 
 function promoteGhost(ms: number) {
   const chunks = encodeGhost(recording)
-  bestTrack = decodeGhost(chunks)
+  selfGhost.track = decodeGhost(chunks)
   bestMs = ms
   console.log(
-    `[CLIENT] ghost: new best ${ms.toFixed(3)}s -> ${bestTrack.count} samples, ${chunkSetBytes(chunks)} B base64`
+    `[CLIENT] ghost: new best ${ms.toFixed(3)}s -> ${selfGhost.track.count} samples, ${chunkSetBytes(chunks)} B base64`
   )
 }
 
 // ---- playback (NO allocation) -------------------------------------
 
-function playAt(t: number) {
-  const tr = bestTrack
-  if (!tr || !ghost || tr.count < 2) return
+function playAt(gp: GhostPlayer, t: number) {
+  const tr = gp.track
+  if (!tr || tr.count < 2) return
   const n = tr.count
   const dur = n / tr.hz
   let pt = t
-  if (pt > dur) pt = dur
+  if (pt > dur) pt = dur // past the end → freeze at the last sample
 
   const fpos = pt * tr.hz
   let s1 = fpos | 0
@@ -133,6 +165,8 @@ function playAt(t: number) {
   const s2 = s1 < n - 1 ? s1 + 1 : n - 1
   const s3 = s2 < n - 1 ? s2 + 1 : n - 1
 
+  // track x/y/z are metres from TRACK_ORIGIN and ALREADY include this ghost's
+  // lane offset (baked into the samples) — add nothing here.
   const gx = TRACK_ORIGIN.x + catmullClamped(tr.x[s0], tr.x[s1], tr.x[s2], tr.x[s3], f)
   const gy = TRACK_ORIGIN.y + catmullClamped(tr.y[s0], tr.y[s1], tr.y[s2], tr.y[s3], f)
   const gz = TRACK_ORIGIN.z + catmullClamped(tr.z[s0], tr.z[s1], tr.z[s2], tr.z[s3], f)
@@ -145,22 +179,22 @@ function playAt(t: number) {
   const yaw = catmullClamped(b0, b1, b2, b3, f)
 
   // roll accumulated from ground distance travelled
-  if (ghostHasPrev) {
-    const dx = gx - ghostPrevX
-    const dz = gz - ghostPrevZ
-    ghostRoll += Math.sqrt(dx * dx + dz * dz) / SPHERE_R
+  if (gp.hasPrev) {
+    const dx = gx - gp.prevX
+    const dz = gz - gp.prevZ
+    gp.roll += Math.sqrt(dx * dx + dz * dz) / SPHERE_R
   }
-  ghostPrevX = gx
-  ghostPrevZ = gz
-  ghostHasPrev = true
+  gp.prevX = gx
+  gp.prevZ = gz
+  gp.hasPrev = true
 
   // rotation = yaw(Y) * roll(local X), written inline (no Quaternion objects)
   const sy = Math.sin(yaw * 0.5)
   const cy = Math.cos(yaw * 0.5)
-  const sr = Math.sin(ghostRoll * 0.5)
-  const cr = Math.cos(ghostRoll * 0.5)
+  const sr = Math.sin(gp.roll * 0.5)
+  const cr = Math.cos(gp.roll * 0.5)
 
-  const mt = Transform.getMutable(ghost)
+  const mt = Transform.getMutable(gp.entity)
   mt.position.x = gx
   mt.position.y = gy + SPHERE_R
   mt.position.z = gz
@@ -182,14 +216,18 @@ function pushSample() {
   })
 }
 
+function hideAll() {
+  for (let i = 0; i < ghosts.length; i++) setGhostVisible(ghosts[i], false)
+}
+
 function ghostSystem(dt: number) {
   if (!Transform.has(engine.PlayerEntity)) return
   const launched = vehicleState.launched
   const phase = raceHud.phase
 
-  // FINISH: crossed the line — freeze, and keep this run if it beat the best.
+  // FINISH: keep the run if it beat the best; hide everyone at the line.
   if (phase === 'finished' && prevPhase !== 'finished') {
-    setVisible(false)
+    hideAll()
     if (!promotedThisRun && raceHud.last > 0 && raceHud.last <= raceHud.best && recording.length > RECORD_HZ) {
       promoteGhost(raceHud.last)
       promotedThisRun = true
@@ -197,42 +235,74 @@ function ghostSystem(dt: number) {
   }
   prevPhase = phase
 
-  // START: the exact frame the post-spawn grace ends (driveSystem set `launched`
-  // and applied the first drive force earlier THIS frame). elapsed = 0 here for
-  // BOTH the recording and the playback; sample 0 and playAt(0) both happen now.
-  if (launched && !prevLaunched) {
+  // not in a run (grace, or respawned) — everything parked
+  if (!launched) {
+    if (prevLaunched) {
+      prevLaunched = false
+      hideAll()
+    }
+    return
+  }
+
+  // first frame of the run (grace just ended): reset the shared clock + every
+  // ghost, drop sample 0, place every ghost at t=0.
+  if (!prevLaunched) {
     prevLaunched = true
     recording.length = 0
     elapsed = 0
     nextSampleT = STEP
-    ghostRoll = 0
-    ghostHasPrev = false
     promotedThisRun = false
-    setVisible(bestTrack !== undefined)
+    for (let i = 0; i < ghosts.length; i++) {
+      resetGhostAccum(ghosts[i])
+      setGhostVisible(ghosts[i], ghosts[i].track !== undefined)
+    }
     pushSample() // sample 0, player at rest at the start line
-    if (bestTrack) playAt(0)
+    for (let i = 0; i < ghosts.length; i++) if (ghosts[i].track) playAt(ghosts[i], 0)
     return
   }
-  if (!launched && prevLaunched) {
-    prevLaunched = false
-    setVisible(false)
-    return
-  }
-  if (!launched || phase === 'finished') return
 
-  // advance the shared clock, then record + play against it
+  if (phase === 'finished') return // run over; the FINISH edge above already hid everyone
+
+  // --- runs EVERY launched frame. The shared clock and the rival playback are
+  //     NOT gated by whether the player has a personal best — only the SELF
+  //     ghost's own visibility is (it has no track until a best exists). ---
   elapsed += dt
 
   while (elapsed >= nextSampleT && recording.length < MAX_SAMPLES) {
-    pushSample()
+    pushSample() // player recording — self only
     nextSampleT += STEP
   }
 
-  if (bestTrack) playAt(elapsed)
+  for (let i = 0; i < ghosts.length; i++) {
+    const gp = ghosts[i]
+    if (gp.visible && gp.track) playAt(gp, elapsed) // rivals always have a track
+  }
 }
 
 export function startGhost() {
-  buildGhost()
+  selfGhost = {
+    entity: buildGhostSphere(false),
+    track: undefined,
+    roll: 0,
+    prevX: 0,
+    prevZ: 0,
+    hasPrev: false,
+    visible: false
+  }
+  ghosts.push(selfGhost)
+
+  for (const b of BAKED_GHOSTS) {
+    ghosts.push({
+      entity: buildGhostSphere(true),
+      track: decodeGhost(b.chunks),
+      roll: 0,
+      prevX: 0,
+      prevZ: 0,
+      hasPrev: false,
+      visible: false
+    })
+  }
+
   engine.addSystem(ghostSystem)
-  console.log('[CLIENT] ghost ready')
+  console.log(`[CLIENT] ghost ready — self + ${BAKED_GHOSTS.length} rivals`)
 }
