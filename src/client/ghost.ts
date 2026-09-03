@@ -36,12 +36,15 @@ import {
   decodeGhost,
   chunkSetBytes,
   type GhostSample,
-  type GhostTrack
+  type GhostTrack,
+  type GhostChunk
 } from '../shared/codec'
 import { TRACK_ORIGIN } from '../shared/track'
 import { BAKED_GHOSTS } from '../shared/bakedGhosts'
 import { raceHud } from './race-hud'
 import { vehicleState } from './vehicle'
+import { room } from '../shared/messages'
+import { racerName } from './net'
 
 const STEP = 1 / RECORD_HZ
 const SPHERE_R = 1.0
@@ -64,9 +67,11 @@ interface GhostPlayer {
   visible: boolean
 }
 
-/** ghosts[0] is always the self ghost; the rest are the baked rivals */
+/** ghosts[0] is the self ghost, then the baked rivals, then one B1 live-ghost
+ *  slot (the last run the server holds — green, filled in by a liveGhost msg). */
 const ghosts: GhostPlayer[] = []
 let selfGhost: GhostPlayer
+let liveGhost: GhostPlayer
 
 let bestMs = Infinity
 
@@ -105,33 +110,44 @@ function wrapPi(d: number): number {
 
 // ---- setup ---------------------------------------------------------
 
-function buildGhostSphere(rival: boolean): Entity {
+// self = gold (your own best), rival = blue (baked), live = green (a real run
+// that just came back from the server — green so it is obvious in testing).
+type GhostKind = 'self' | 'rival' | 'live'
+const GHOST_MATERIAL: Record<GhostKind, Parameters<typeof Material.setPbrMaterial>[1]> = {
+  self: {
+    albedoColor: Color4.create(1, 0.82, 0.25, 0.16),
+    emissiveColor: Color3.create(1, 0.7, 0.15),
+    emissiveIntensity: 0.7,
+    metallic: 0,
+    roughness: 1,
+    transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND
+  },
+  rival: {
+    albedoColor: Color4.create(0.3, 0.55, 1, 0.16),
+    emissiveColor: Color3.create(0.25, 0.5, 1),
+    emissiveIntensity: 0.6,
+    metallic: 0,
+    roughness: 1,
+    transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND
+  },
+  live: {
+    albedoColor: Color4.create(0.3, 1, 0.45, 0.16),
+    emissiveColor: Color3.create(0.2, 1, 0.4),
+    emissiveIntensity: 0.7,
+    metallic: 0,
+    roughness: 1,
+    transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND
+  }
+}
+
+function buildGhostSphere(kind: GhostKind): Entity {
   const e = engine.addEntity()
   Transform.create(e, {
     position: Vector3.create(TRACK_ORIGIN.x, -50, TRACK_ORIGIN.z),
     scale: Vector3.create(SPHERE_R * 2, SPHERE_R * 2, SPHERE_R * 2)
   })
   MeshRenderer.setSphere(e)
-  Material.setPbrMaterial(
-    e,
-    rival
-      ? {
-          albedoColor: Color4.create(0.3, 0.55, 1, 0.16),
-          emissiveColor: Color3.create(0.25, 0.5, 1),
-          emissiveIntensity: 0.6,
-          metallic: 0,
-          roughness: 1,
-          transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND
-        }
-      : {
-          albedoColor: Color4.create(1, 0.82, 0.25, 0.16),
-          emissiveColor: Color3.create(1, 0.7, 0.15),
-          emissiveIntensity: 0.7,
-          metallic: 0,
-          roughness: 1,
-          transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND
-        }
-  )
+  Material.setPbrMaterial(e, GHOST_MATERIAL[kind])
   VisibilityComponent.create(e, { visible: false })
   return e
 }
@@ -177,6 +193,12 @@ function resetGhostAccum(gp: GhostPlayer) {
   gp.hasPrev = false
 }
 
+/** rename a ghost after creation (B1 live ghost — name arrives with the blob) */
+function setGhostName(gp: GhostPlayer, name: string) {
+  gp.name = name
+  TextShape.getMutable(gp.label).text = name
+}
+
 function promoteGhost(ms: number) {
   const chunks = encodeGhost(recording)
   selfGhost.track = decodeGhost(chunks)
@@ -184,6 +206,32 @@ function promoteGhost(ms: number) {
   console.log(
     `[CLIENT] ghost: new best ${ms.toFixed(3)}s -> ${selfGhost.track.count} samples, ${chunkSetBytes(chunks)} B base64`
   )
+}
+
+// ---- B1 network: one live run round-tripped through the server ----
+
+/** ask the server for whatever run it currently holds */
+function requestGhosts() {
+  if (room.isReady()) void room.send('requestGhosts', { t: Date.now() })
+}
+
+/** post the just-finished run to the server (independent of the self-ghost
+ *  promotion above — the server keeps the LAST run, not the best). */
+function submitCurrentRun() {
+  if (recording.length <= RECORD_HZ) return
+  if (!room.isReady()) return
+  const chunks = encodeGhost(recording)
+  void room.send('submitRun', { name: racerName(), chunks })
+  console.log(`[CLIENT] submitRun sent — ${chunks.length} chunk(s), ${chunkSetBytes(chunks)} B`)
+}
+
+/** a real run came back from the server — fill the green live-ghost slot. It
+ *  becomes visible at the next run-start edge (mid-run arrivals wait one run). */
+function onLiveGhost(data: { name: string; chunks: GhostChunk[] }) {
+  if (!data.chunks || data.chunks.length === 0) return
+  liveGhost.track = decodeGhost(data.chunks)
+  setGhostName(liveGhost, data.name || 'Racer')
+  console.log(`[CLIENT] liveGhost received — "${liveGhost.name}", ${liveGhost.track.count} samples`)
 }
 
 // ---- playback (NO allocation) -------------------------------------
@@ -271,6 +319,10 @@ function ghostSystem(dt: number) {
       promoteGhost(raceHud.last)
       promotedThisRun = true
     }
+    // B1: hand this run to the server, then ask for whatever it now holds so
+    // the green live ghost is ready by the time the player taps RESTART.
+    submitCurrentRun()
+    requestGhosts()
   }
   prevPhase = phase
 
@@ -291,6 +343,8 @@ function ghostSystem(dt: number) {
     elapsed = 0
     nextSampleT = STEP
     promotedThisRun = false
+    requestGhosts() // B1: pick up a run the server may already hold from before
+
     for (let i = 0; i < ghosts.length; i++) {
       resetGhostAccum(ghosts[i])
       setGhostVisible(ghosts[i], ghosts[i].track !== undefined)
@@ -328,7 +382,7 @@ function ghostSystem(dt: number) {
 
 export function startGhost() {
   selfGhost = {
-    entity: buildGhostSphere(false),
+    entity: buildGhostSphere('self'),
     label: buildGhostLabel(''), // no name tag for your own ghost
     name: '',
     track: undefined,
@@ -342,7 +396,7 @@ export function startGhost() {
 
   for (const b of BAKED_GHOSTS) {
     ghosts.push({
-      entity: buildGhostSphere(true),
+      entity: buildGhostSphere('rival'),
       label: buildGhostLabel(b.name), // name straight from the data — server will supply real ones
       name: b.name,
       track: decodeGhost(b.chunks),
@@ -354,6 +408,24 @@ export function startGhost() {
     })
   }
 
+  // B1: one green slot for the last real run the server holds. Empty track
+  // until a liveGhost message fills it; then it rides with the rest.
+  liveGhost = {
+    entity: buildGhostSphere('live'),
+    label: buildGhostLabel(''),
+    name: '',
+    track: undefined,
+    roll: 0,
+    prevX: 0,
+    prevZ: 0,
+    hasPrev: false,
+    visible: false
+  }
+  ghosts.push(liveGhost)
+
+  room.onMessage('liveGhost', onLiveGhost)
+  requestGhosts() // in case the server already has a run from a previous visitor
+
   engine.addSystem(ghostSystem)
-  console.log(`[CLIENT] ghost ready — self + ${BAKED_GHOSTS.length} rivals`)
+  console.log(`[CLIENT] ghost ready — self + ${BAKED_GHOSTS.length} rivals + 1 live slot`)
 }
