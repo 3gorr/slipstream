@@ -9,6 +9,9 @@
  *     start, replayed as translucent BLUE spheres. Always have a track, so
  *     always visible during a run. Their lane offset is already baked into the
  *     samples — playback adds NOTHING, it plays the track as-is.
+ *   - LIVE ghosts (B2): up to LIVE_N translucent GREEN spheres, the server's
+ *     top-N real runs ranked by time. Slots fill from `liveGhost` messages; an
+ *     unfilled slot stays hidden. Names come straight from the message.
  *
  * All ghosts share one clock: `elapsed` seconds since the `launched` frame (grace
  * over, player released). Every ghost starts playback at elapsed 0, so a matched
@@ -67,11 +70,16 @@ interface GhostPlayer {
   visible: boolean
 }
 
-/** ghosts[0] is the self ghost, then the baked rivals, then one B1 live-ghost
- *  slot (the last run the server holds — green, filled in by a liveGhost msg). */
+/** as many live-ghost slots as baked rivals — the server's top-N by run time */
+const LIVE_N = 3
+
+/** ghosts[]: [0] self ghost, then the baked rivals, then LIVE_N green live-ghost
+ *  slots. A live slot has no track until a liveGhost message fills it. */
 const ghosts: GhostPlayer[] = []
 let selfGhost: GhostPlayer
-let liveGhost: GhostPlayer
+const liveGhosts: GhostPlayer[] = []
+/** how many live slots the last server batch actually filled (0..LIVE_N) */
+let liveCount = 0
 
 let bestMs = Infinity
 
@@ -215,23 +223,35 @@ function requestGhosts() {
   if (room.isReady()) void room.send('requestGhosts', { t: Date.now() })
 }
 
-/** post the just-finished run to the server (independent of the self-ghost
- *  promotion above — the server keeps the LAST run, not the best). */
+/** post the just-finished run to the server. `raceHud.last` is THIS run's time
+ *  (race.ts sets it on the finish frame, before this edge fires), not the
+ *  session best — the server ranks the board by it. */
 function submitCurrentRun() {
   if (recording.length <= RECORD_HZ) return
   if (!room.isReady()) return
+  const timeMs = Math.round(raceHud.last * 1000)
+  if (timeMs <= 0) return
   const chunks = encodeGhost(recording)
-  void room.send('submitRun', { name: racerName(), chunks })
-  console.log(`[CLIENT] submitRun sent — ${chunks.length} chunk(s), ${chunkSetBytes(chunks)} B`)
+  void room.send('submitRun', { name: racerName(), chunks, timeMs })
+  console.log(`[CLIENT] submitRun sent — ${timeMs}ms, ${chunks.length} chunk(s), ${chunkSetBytes(chunks)} B`)
 }
 
-/** a real run came back from the server — fill the green live-ghost slot. It
- *  becomes visible at the next run-start edge (mid-run arrivals wait one run). */
-function onLiveGhost(data: { name: string; chunks: GhostChunk[] }) {
-  if (!data.chunks || data.chunks.length === 0) return
-  liveGhost.track = decodeGhost(data.chunks)
-  setGhostName(liveGhost, data.name || 'Racer')
-  console.log(`[CLIENT] liveGhost received — "${liveGhost.name}", ${liveGhost.track.count} samples`)
+/** a live ghost came back from the server. The server streams the top-N one
+ *  message per ghost; `idx` is the slot (rank), `total` how many it is sending.
+ *  Slots past `total` are cleared. Filled slots show at the next run-start edge
+ *  (mid-run arrivals wait one run). */
+function onLiveGhost(data: { name: string; chunks: GhostChunk[]; idx: number; total: number }) {
+  const { idx } = data
+  if (idx < 0 || idx >= LIVE_N || !data.chunks || data.chunks.length === 0) return
+  const gp = liveGhosts[idx]
+  gp.track = decodeGhost(data.chunks)
+  setGhostName(gp, data.name || 'Racer')
+  liveCount = Math.max(1, Math.min(data.total, LIVE_N))
+  for (let j = liveCount; j < LIVE_N; j++) {
+    liveGhosts[j].track = undefined
+    setGhostVisible(liveGhosts[j], false)
+  }
+  console.log(`[CLIENT] liveGhost ${idx + 1}/${data.total} — "${gp.name}", ${gp.track.count} samples`)
 }
 
 // ---- playback (NO allocation) -------------------------------------
@@ -408,24 +428,27 @@ export function startGhost() {
     })
   }
 
-  // B1: one green slot for the last real run the server holds. Empty track
-  // until a liveGhost message fills it; then it rides with the rest.
-  liveGhost = {
-    entity: buildGhostSphere('live'),
-    label: buildGhostLabel(''),
-    name: '',
-    track: undefined,
-    roll: 0,
-    prevX: 0,
-    prevZ: 0,
-    hasPrev: false,
-    visible: false
+  // B2: LIVE_N green slots for the server's top-N runs. No track until a
+  // liveGhost message fills a slot; then it rides with the rest.
+  for (let i = 0; i < LIVE_N; i++) {
+    const gp: GhostPlayer = {
+      entity: buildGhostSphere('live'),
+      label: buildGhostLabel(''),
+      name: '',
+      track: undefined,
+      roll: 0,
+      prevX: 0,
+      prevZ: 0,
+      hasPrev: false,
+      visible: false
+    }
+    liveGhosts.push(gp)
+    ghosts.push(gp)
   }
-  ghosts.push(liveGhost)
 
   room.onMessage('liveGhost', onLiveGhost)
-  requestGhosts() // in case the server already has a run from a previous visitor
+  requestGhosts() // in case the server already has a board from a previous visitor
 
   engine.addSystem(ghostSystem)
-  console.log(`[CLIENT] ghost ready — self + ${BAKED_GHOSTS.length} rivals + 1 live slot`)
+  console.log(`[CLIENT] ghost ready — self + ${BAKED_GHOSTS.length} rivals + ${LIVE_N} live slots`)
 }

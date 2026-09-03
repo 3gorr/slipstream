@@ -5,7 +5,7 @@ import { Color4 } from '@dcl/sdk/math'
 import { InputAction } from '@dcl/sdk/ecs'
 import { DEBUG_HUD, TOUCH_TUNE, SHOW_TOUCH_TUNE, SHOW_DEBUG_PANEL, SHOW_NET_DEBUG } from './flags'
 import { debugHud, requestRespawn } from './vehicle'
-import { netState } from './net'
+import { netState, racerNameRaw } from './net'
 
 export const raceHud = {
   phase: 'idle' as 'idle' | 'running' | 'finished',
@@ -181,14 +181,17 @@ const NetPanel = () => (
     uiTransform={{
       positionType: 'absolute',
       position: { top: 60, left: 24 },
-      width: 240,
+      width: 360,
       height: 30,
       justifyContent: 'flex-start',
       alignItems: 'center'
     }}
     uiBackground={{ color: Color4.create(0, 0, 0, 0.6) }}
     uiText={{
-      value: netState.serverConnected ? 'server: connected' : 'server: waiting…',
+      // TEMP: name suffix is a diagnostic for the racerName cache — remove with the panel.
+      value:
+        (netState.serverConnected ? 'server: connected' : 'server: waiting…') +
+        (racerNameRaw() ? ` · ${racerNameRaw()}` : ' · (no name)'),
       fontSize: 16,
       color: netState.serverConnected ? Color4.create(0.5, 1, 0.7, 1) : Color4.create(1, 0.8, 0.4, 1),
       textAlign: 'middle-left'
