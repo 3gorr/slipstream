@@ -224,11 +224,30 @@ function promoteGhost(ms: number) {
   )
 }
 
-// ---- B1 network: one live run round-tripped through the server ----
+// ---- B1/B2 network: live runs through the server ----
 
-/** ask the server for whatever run it currently holds */
+/** ask the server for its current top-N. `room` buffers until the transport is
+ *  ready, but the server itself can still be cold-starting — the retry system
+ *  below covers that window. */
 function requestGhosts() {
   if (room.isReady()) void room.send('requestGhosts', { t: Date.now() })
+}
+
+// First-contact retry: on a cold start the server sleeps ~15 s and drops the
+// early requestGhosts. Resend every RETRY_EVERY seconds until the first
+// liveGhost lands (hasLiveGhosts), then this system removes itself for good —
+// hasLiveGhosts is sticky, so it never comes back. Modelled on B0's helloSystem.
+const GHOST_RETRY_EVERY = 2 // seconds
+let sinceGhostRetry = GHOST_RETRY_EVERY // fire on the first eligible frame
+function ghostRetrySystem(dt: number) {
+  if (hasLiveGhosts) {
+    engine.removeSystem(ghostRetrySystem)
+    return
+  }
+  sinceGhostRetry += dt
+  if (sinceGhostRetry < GHOST_RETRY_EVERY) return
+  sinceGhostRetry = 0
+  requestGhosts()
 }
 
 /** post the just-finished run to the server. `raceHud.last` is THIS run's time
@@ -358,10 +377,9 @@ function ghostSystem(dt: number) {
       promoteGhost(raceHud.last)
       promotedThisRun = true
     }
-    // B1: hand this run to the server, then ask for whatever it now holds so
-    // the green live ghost is ready by the time the player taps RESTART.
+    // Hand this run to the server. No requestGhosts here — first contact is the
+    // retry system's job; the steady-state refresh is at the run-start edge.
     submitCurrentRun()
-    requestGhosts()
   }
   prevPhase = phase
 
@@ -382,7 +400,10 @@ function ghostSystem(dt: number) {
     elapsed = 0
     nextSampleT = STEP
     promotedThisRun = false
-    requestGhosts() // B1: pick up a run the server may already hold from before
+    // Steady-state refresh: once contact is established, pick up board changes
+    // (your own new time, other players') at each run start. Before first
+    // contact the retry system owns the requests — don't double up.
+    if (hasLiveGhosts) requestGhosts()
 
     for (let i = 0; i < ghosts.length; i++) {
       resetGhostAccum(ghosts[i])
@@ -469,7 +490,7 @@ export function startGhost() {
   }
 
   room.onMessage('liveGhost', onLiveGhost)
-  requestGhosts() // in case the server already has a board from a previous visitor
+  engine.addSystem(ghostRetrySystem) // polls requestGhosts until the first liveGhost, then self-removes
 
   engine.addSystem(ghostSystem)
   console.log(`[CLIENT] ghost ready — self + ${BAKED_GHOSTS.length} rivals + ${LIVE_N} live slots`)
