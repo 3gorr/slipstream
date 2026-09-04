@@ -6,12 +6,14 @@
  *     the session best, then replayed as a translucent GOLD sphere. Not shown
  *     until a best exists.
  *   - RIVAL ghosts: BAKED_GHOSTS (src/shared/bakedGhosts.ts), decoded once at
- *     start, replayed as translucent BLUE spheres. Always have a track, so
- *     always visible during a run. Their lane offset is already baked into the
- *     samples — playback adds NOTHING, it plays the track as-is.
+ *     start, replayed as translucent BLUE spheres. A COLD-SERVER STAND-IN only:
+ *     shown while no live ghost has arrived, hidden from the next run on once one
+ *     has (`hasLiveGhosts`). Lane offset is baked into the samples — playback
+ *     adds NOTHING, it plays the track as-is.
  *   - LIVE ghosts (B2): up to LIVE_N translucent GREEN spheres, the server's
  *     top-N real runs ranked by time. Slots fill from `liveGhost` messages; an
- *     unfilled slot stays hidden. Names come straight from the message.
+ *     unfilled slot stays hidden. Once any arrive they REPLACE the baked rivals
+ *     (1..3 live, no baked top-up). Names come straight from the message.
  *
  * All ghosts share one clock: `elapsed` seconds since the `launched` frame (grace
  * over, player released). Every ghost starts playback at elapsed 0, so a matched
@@ -56,6 +58,8 @@ const LABEL_Y = 1.8 // metres above the sphere centre — clears the sphere, sta
 
 interface GhostPlayer {
   entity: Entity
+  /** which pool this ghost belongs to — decides the baked-vs-live visibility rule */
+  kind: GhostKind
   /** floating name tag above the sphere (TextShape + Billboard), positioned by hand each frame */
   label: Entity
   /** display name — "" for the self ghost (no tag), the rival's name otherwise.
@@ -80,6 +84,10 @@ let selfGhost: GhostPlayer
 const liveGhosts: GhostPlayer[] = []
 /** how many live slots the last server batch actually filled (0..LIVE_N) */
 let liveCount = 0
+/** sticky for the session: true once at least one real live ghost has arrived.
+ *  While false the baked rivals stand in (cold / empty / silent server); once
+ *  true the baked rivals are hidden and only the live ghosts race. */
+let hasLiveGhosts = false
 
 let bestMs = Infinity
 
@@ -246,6 +254,7 @@ function onLiveGhost(data: { name: string; chunks: GhostChunk[]; idx: number; to
   const gp = liveGhosts[idx]
   gp.track = decodeGhost(data.chunks)
   setGhostName(gp, data.name || 'Racer')
+  hasLiveGhosts = true // sticky — baked rivals step aside from the next run on
   liveCount = Math.max(1, Math.min(data.total, LIVE_N))
   for (let j = liveCount; j < LIVE_N; j++) {
     liveGhosts[j].track = undefined
@@ -327,6 +336,16 @@ function hideAll() {
   for (let i = 0; i < ghosts.length; i++) setGhostVisible(ghosts[i], false)
 }
 
+/** whether a ghost should race this run. Baked rivals are the cold-server
+ *  stand-in: they show only while no live ghost has arrived. Self and live
+ *  ghosts show whenever they have a track. Decided once per run at the
+ *  launched edge so the field never changes mid-run. */
+function shouldShow(gp: GhostPlayer): boolean {
+  if (!gp.track) return false
+  if (gp.kind === 'rival') return !hasLiveGhosts
+  return true
+}
+
 function ghostSystem(dt: number) {
   if (!Transform.has(engine.PlayerEntity)) return
   const launched = vehicleState.launched
@@ -367,11 +386,11 @@ function ghostSystem(dt: number) {
 
     for (let i = 0; i < ghosts.length; i++) {
       resetGhostAccum(ghosts[i])
-      setGhostVisible(ghosts[i], ghosts[i].track !== undefined)
+      setGhostVisible(ghosts[i], shouldShow(ghosts[i]))
     }
     pushSample() // sample 0, player at rest at the start line
     for (let i = 0; i < ghosts.length; i++) {
-      if (ghosts[i].track) {
+      if (ghosts[i].visible && ghosts[i].track) {
         playAt(ghosts[i], 0)
         updateLabel(ghosts[i])
       }
@@ -403,6 +422,7 @@ function ghostSystem(dt: number) {
 export function startGhost() {
   selfGhost = {
     entity: buildGhostSphere('self'),
+    kind: 'self',
     label: buildGhostLabel(''), // no name tag for your own ghost
     name: '',
     track: undefined,
@@ -417,6 +437,7 @@ export function startGhost() {
   for (const b of BAKED_GHOSTS) {
     ghosts.push({
       entity: buildGhostSphere('rival'),
+      kind: 'rival',
       label: buildGhostLabel(b.name), // name straight from the data — server will supply real ones
       name: b.name,
       track: decodeGhost(b.chunks),
@@ -433,6 +454,7 @@ export function startGhost() {
   for (let i = 0; i < LIVE_N; i++) {
     const gp: GhostPlayer = {
       entity: buildGhostSphere('live'),
+      kind: 'live',
       label: buildGhostLabel(''),
       name: '',
       track: undefined,
