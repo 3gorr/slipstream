@@ -38,8 +38,10 @@ export const SHOW_TOUCH_TUNE = false
 export const SHOW_DEBUG_PANEL = false
 
 /**
- * TEMP (Phase B, step B0): show the small "server: waiting… / connected"
- * indicator that proves the client↔server hello handshake works. Turn off once
- * real server messaging is in.
+ * Phase B network debug: the small top-left "server: connected · <name>"
+ * indicator (NetPanel in race-hud.tsx). Dev-only — a judge must never see it.
+ * Default false. Flip to true to watch the handshake / racer-name cache resolve.
+ * Only the panel is gated; the name cache itself (net.ts) always runs — the
+ * ghost billboards need it.
  */
-export const SHOW_NET_DEBUG = true
+export const SHOW_NET_DEBUG = false

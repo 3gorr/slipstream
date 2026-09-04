@@ -175,7 +175,8 @@ const TouchTunePanel = () => {
   )
 }
 
-// TEMP (B0): client↔server channel indicator. Top-left, small.
+// Dev-only network indicator, gated by SHOW_NET_DEBUG (default false — a judge
+// never sees this). The racer-name cache in net.ts runs regardless.
 const NetPanel = () => (
   <UiEntity
     uiTransform={{
