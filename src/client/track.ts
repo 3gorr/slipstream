@@ -12,7 +12,13 @@
  * skybox the flat ribbon reads washed-out. Kept in the repo, not in the scene.
  *
  * WALLS + RAILS: box primitives, one pair per segment. Rails (emissive neon, no
- * collider) only on the turn segments.
+ * collider) run the whole track except the very first segment (kept dim for
+ * contrast at the start) — extended past the original three turn segments to
+ * cover the longer easing tail too (length pass, Sept 2026).
+ *
+ * OBSTACLES: static box pillars (OBSTACLES in shared/track.ts), full collider,
+ * offset off the centreline so there is always a way around. Same box-primitive
+ * style as everything else — no new mesh type, no new collider layer.
  */
 import { engine, Transform, MeshRenderer, MeshCollider, Material, ColliderLayer } from '@dcl/sdk/ecs'
 import { Vector3, Quaternion, Color3, Color4 } from '@dcl/sdk/math'
@@ -29,6 +35,10 @@ import {
   RUNOUT_END_Z,
   RUNOUT_START_Z,
   RUNOUT_Y,
+  OBSTACLES,
+  segmentAtZ,
+  surfacePointAt,
+  type Obstacle,
   type TrackSegment
 } from '../shared/track'
 
@@ -36,6 +46,11 @@ const FLOOR_COLOR = Color4.create(0.14, 0.14, 0.18, 1)
 const WALL_COLOR = Color4.create(0.1, 0.1, 0.14, 1)
 const RAIL_GLOW = Color3.create(0.15, 0.55, 1)
 const RAIL_SIZE = 0.18
+
+const OBSTACLE_COLOR = Color4.create(1, 0.32, 0.14, 1) // hazard amber-red — reads as "stop" against the cool rails
+const OBSTACLE_GLOW = Color3.create(1, 0.28, 0.1)
+const OBSTACLE_WIDTH = 0.7
+const OBSTACLE_HEIGHT = 4.5
 
 function box(pos: Vector3, scale: Vector3, rot: Quaternion, color: Color4) {
   const e = engine.addEntity()
@@ -87,6 +102,32 @@ function buildSegment(s: TrackSegment, withRails: boolean) {
   }
 }
 
+/** vertical pillar, perpendicular to the local track surface — same orientation
+ *  convention as the walls (s.rotation aligns local Y to the surface normal). */
+function buildObstacle(o: Obstacle) {
+  const seg = segmentAtZ(o.z)
+  const base = surfacePointAt(o.z)
+  const pos = Vector3.add(
+    base,
+    Vector3.add(Vector3.scale(seg.right, o.offset), Vector3.scale(seg.normal, OBSTACLE_HEIGHT / 2))
+  )
+  const e = engine.addEntity()
+  Transform.create(e, {
+    position: pos,
+    scale: Vector3.create(OBSTACLE_WIDTH, OBSTACLE_HEIGHT, OBSTACLE_WIDTH),
+    rotation: seg.rotation
+  })
+  MeshRenderer.setBox(e)
+  MeshCollider.setBox(e, ColliderLayer.CL_PHYSICS)
+  Material.setPbrMaterial(e, {
+    albedoColor: OBSTACLE_COLOR,
+    emissiveColor: OBSTACLE_GLOW,
+    emissiveIntensity: 1.2,
+    metallic: 0,
+    roughness: 1
+  })
+}
+
 function buildRunout() {
   const q = Quaternion.Identity()
   // The slab starts BEFORE RUNOUT_START_Z so it overlaps the end of seg4 (whose
@@ -122,8 +163,10 @@ function buildRunout() {
 }
 
 export function buildTrack() {
-  // rails only on the turn segments (1–3)
-  SEGMENTS.forEach((s, i) => buildSegment(s, i >= 1 && i <= 3))
+  // rails on every segment but the first (kept dim so the run starts in
+  // near-dark, then lights up) — covers the turns AND the longer easing tail.
+  SEGMENTS.forEach((s, i) => buildSegment(s, i >= 1))
   buildRunout()
-  console.log(`[CLIENT] track built (${SEGMENTS.length} segments, box floor)`)
+  OBSTACLES.forEach(buildObstacle)
+  console.log(`[CLIENT] track built (${SEGMENTS.length} segments, ${OBSTACLES.length} obstacles, box floor)`)
 }

@@ -45,25 +45,29 @@ export const TRACK_ORIGIN = Vector3.create(8, 0, 4)
 
 /**
  * Rolling-surface joints, top → bottom. Weaves X 5..11 (so the extended outer
- * walls at the turns stay inside the 16 m-wide scene).
+ * walls at the turns stay inside the 16 m-wide parcel column).
  *
  * Pitch profile: 7.9° → 10.3° → 13.9° → 15.9° (steepening, so the three turn
- * joints are all CONCAVE and support the sphere), then eases 15.9° → 7.5° → 0°
- * across two short transition steps before the flat run-out — spreading what was
- * a single 16°→0° convex cliff (a launch ramp at top speed) into two gentle
- * ~8° convex bends. pinForce keeps the sphere glued through them.
+ * joints are all CONCAVE and support the sphere), then eases 15.9° → 4.0° →
+ * 2.2° → 1.1° → 0.4° across four gentle weaving transition steps before the
+ * flat run-out (length pass, Sept 2026 — extended the easing tail instead of
+ * adding a second steep S-bend, so every new joint stays CONVEX/seamless like
+ * the original two transition steps; SEAM_Z below still only lists the three
+ * original concave turn joints). pinForce keeps the sphere glued through the
+ * concave joints; the convex ones need none.
  *
  * Δyaw at the three turn joints ≈ −14° / +18° / −14°. Edit the shape in
  * src/shared/track-joints.ts, then re-run `npm run gen-track`.
  */
 export const JOINTS: Vector3[] = JOINT_TUPLES.map((t) => Vector3.create(t[0], t[1], t[2]))
 
-/** Z where the transition segment ends and the flat run-out begins. */
-export const RUNOUT_START_Z = 153
-/** End of the flat run-out. Kept a few metres inside the Z=160 scene edge — an
- * entity whose bounding box crosses the parcel boundary is dropped entirely
- * (this was the end-of-track fall-through: the run-out slab reached Z≈160.8). */
-export const RUNOUT_END_Z = 158
+/** Z where the last easing segment ends and the flat run-out begins. */
+export const RUNOUT_START_Z = 372
+/** End of the flat run-out. Kept a few metres inside the scene's Z=384 edge
+ * (24 parcels) — an entity whose bounding box crosses the parcel boundary is
+ * dropped entirely (this was the end-of-track fall-through at the old Z=160
+ * edge, now scaled up with the longer track). */
+export const RUNOUT_END_Z = 380
 /** Y of the flat run-out surface (matches the last joint). */
 export const RUNOUT_Y = 3.9
 
@@ -174,8 +178,30 @@ export const SPAWN: Vector3 = Vector3.add(
 export const SPAWN_LOOK: Vector3 = Vector3.add(surfacePointAt(SEGMENTS[0].a.z + 28), Vector3.create(0, -1, 0))
 
 /**
- * Checkpoint plane Z positions. First = start line, last = finish line (on the
- * flat run-out, ~1.5 m before the end wall). Used by the client race timer now,
- * server-side timing later.
+ * Static obstacles — vertical pillars the player must steer around, not through.
+ * `offset` is signed lateral distance from the centreline (+ = right of travel,
+ * same convention as laneOffsetAt/trackOffsetAt). Kept away from SEAM_Z (the
+ * concave floor seams already need special pinning) so a dodge never stacks on
+ * top of a seam-transition frame. Client builds the mesh + collider in
+ * client/track.ts; this is pure placement data.
  */
-export const CHECKPOINTS_Z = [8, 40, 78, 116, 156]
+export interface Obstacle {
+  z: number
+  offset: number
+}
+export const OBSTACLES: Obstacle[] = [
+  { z: 60, offset: 1.2 },
+  { z: 100, offset: -2.0 },
+  { z: 160, offset: 2.0 },
+  { z: 210, offset: -1.3 },
+  { z: 270, offset: 1.8 },
+  { z: 330, offset: -2.1 }
+]
+
+/**
+ * Checkpoint plane Z positions. First = start line, last = finish line (on the
+ * flat run-out, ~2 m before the end wall). One per joint (turn + easing), so
+ * the longer track keeps the same timing/anti-cheat granularity per metre as
+ * before. Used by the client race timer now, server-side timing later.
+ */
+export const CHECKPOINTS_Z = [8, 40, 78, 116, 180, 244, 308, 378]
