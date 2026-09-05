@@ -460,12 +460,9 @@
               "sports"
             ],
             "author": "Slipstream team",
+            "email": "",
             "tags": [],
             "layout": {
-              "base": {
-                "x": 0,
-                "y": 0
-              },
               "parcels": [
                 {
                   "x": 0,
@@ -507,7 +504,11 @@
                   "x": 0,
                   "y": 9
                 }
-              ]
+              ],
+              "base": {
+                "x": 0,
+                "y": 0
+              }
             },
             "silenceVoiceChat": true,
             "disablePortableExperiences": true,
@@ -539,6 +540,8 @@
             "skyboxConfig": {
               "fixedTime": 79200
             },
+            "creator": "",
+            "disableNearbyVoiceChat": false,
             "hideLandscapeTerrain": true
           }
         }
