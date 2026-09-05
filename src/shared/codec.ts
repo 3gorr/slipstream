@@ -2,10 +2,19 @@
  * Ghost blob codec.
  *
  * One sample = 7 bytes, little-endian:
- *   x   int16  centimetres from track start
- *   y   int16  centimetres
- *   z   int16  centimetres
+ *   x   int16  decimetres (10 cm units) from track start
+ *   y   int16  decimetres
+ *   z   int16  decimetres
  *   yaw uint8   sphere heading, 1/256 of a turn
+ *
+ * Format 1 stored centimetres (±327.67 m range) — fine for the original ~158 m
+ * track. The Sept 2026 length pass stretched the track to ~380 m one-way, plus
+ * headroom for further growth, so format 2 stores decimetres instead
+ * (±3276.7 m range) at 10 cm quantisation — imperceptible on a 1 m-radius
+ * sphere smoothed by Catmull-Rom playback. GHOST_FORMAT bumped accordingly:
+ * any format-1 blob left in server Storage decodes as garbage under format 2
+ * and must be cleared, not migrated (the track geometry changed anyway, so old
+ * ghosts don't line up with it any more).
  *
  * Record rate: RECORD_HZ. A full run is RUN_SECONDS long, so the raw payload is
  * RECORD_HZ * RUN_SECONDS * 7 bytes. That is chunked with (seq, total) headers
@@ -13,10 +22,12 @@
  * current rate everything fits in a single chunk.
  */
 
-export const GHOST_FORMAT = 1
+export const GHOST_FORMAT = 2
 export const SAMPLE_BYTES = 7
 export const RECORD_HZ = 8
-export const RUN_SECONDS = 75
+/** Run duration budget — relaxed from the original 50-70s (CLAUDE.md §1) to
+ * 90-120s for the longer track; padded above 120s for tuning headroom. */
+export const RUN_SECONDS = 140
 export const MAX_SAMPLES = RECORD_HZ * RUN_SECONDS
 
 /** Raw bytes per chunk. base64 inflates ~4/3, so 8000 -> ~10.7 KB, under 13 KB. */
@@ -115,9 +126,11 @@ export function encodeGhost(samples: GhostSample[], hz: number = RECORD_HZ): Gho
   for (let i = 0; i < n; i++) {
     const s = samples[i]
     const o = i * SAMPLE_BYTES
-    dv.setInt16(o, clampI16(Math.round(s.x)), true)
-    dv.setInt16(o + 2, clampI16(Math.round(s.y)), true)
-    dv.setInt16(o + 4, clampI16(Math.round(s.z)), true)
+    // GhostSample.x/y/z arrive in centimetres (see ghost.ts pushSample); stored
+    // as decimetres (format 2), so divide by 10 going in.
+    dv.setInt16(o, clampI16(Math.round(s.x / 10)), true)
+    dv.setInt16(o + 2, clampI16(Math.round(s.y / 10)), true)
+    dv.setInt16(o + 4, clampI16(Math.round(s.z / 10)), true)
     let t = s.yaw % TWO_PI
     if (t < 0) t += TWO_PI
     dv.setUint8(o + 6, Math.round((t / TWO_PI) * 256) & 0xff)
@@ -161,9 +174,10 @@ export function decodeGhost(chunks: GhostChunk[]): GhostTrack {
   }
   for (let i = 0; i < count; i++) {
     const o = i * SAMPLE_BYTES
-    track.x[i] = dv.getInt16(o, true) / 100
-    track.y[i] = dv.getInt16(o + 2, true) / 100
-    track.z[i] = dv.getInt16(o + 4, true) / 100
+    // raw is decimetres (format 2): ×10 for cm, ×0.01 for metres = /10 straight to metres.
+    track.x[i] = dv.getInt16(o, true) / 10
+    track.y[i] = dv.getInt16(o + 2, true) / 10
+    track.z[i] = dv.getInt16(o + 4, true) / 10
     track.yaw[i] = (dv.getUint8(o + 6) / 256) * TWO_PI
   }
   return track
