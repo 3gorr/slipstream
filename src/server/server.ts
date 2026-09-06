@@ -12,7 +12,7 @@
 
 import { Storage } from '@dcl/sdk/server'
 import { room } from '../shared/messages'
-import type { GhostChunk } from '../shared/codec'
+import { GHOST_FORMAT, type GhostChunk } from '../shared/codec'
 
 const TOP_N = 3 // as many live ghosts as baked rivals — keeps the mobile budget
 
@@ -51,18 +51,42 @@ function validBoard(v: unknown): LbEntry[] {
 
 function validChunks(v: unknown): GhostChunk[] {
   if (!Array.isArray(v)) return []
-  // shallow shape check — the codec decodes defensively anyway
-  return v.every((c) => c && typeof c.b64 === 'string' && typeof c.n === 'number') ? (v as GhostChunk[]) : []
+  // shape check + GHOST_FORMAT match. A track-geometry change (length, joints)
+  // bumps GHOST_FORMAT (see codec.ts) specifically because an old blob decodes
+  // to wrong-scale garbage under the new format, not an error — so a stale
+  // version must be rejected here, not just shape-checked.
+  return v.every((c) => c && c.v === GHOST_FORMAT && typeof c.b64 === 'string' && typeof c.n === 'number')
+    ? (v as GhostChunk[])
+    : []
 }
 
 async function loadBoard(): Promise<void> {
   try {
-    board = validBoard(await Storage.get<LbEntry[]>(LB_KEY))
-    for (const e of board) {
+    const rawBoard = validBoard(await Storage.get<LbEntry[]>(LB_KEY))
+    const kept: LbEntry[] = []
+    for (const e of rawBoard) {
       const c = validChunks(await Storage.get<GhostChunk[]>(ghostKey(e.addr)))
-      if (c.length > 0) blobs.set(e.addr, c)
+      if (c.length > 0) {
+        blobs.set(e.addr, c)
+        kept.push(e)
+      } else {
+        // stale GHOST_FORMAT (or missing blob) — drop the entry too, not just
+        // skip serving it. Left in place it would sit in a top-N slot forever
+        // (nothing ever beats a leftover time from the old shorter track) while
+        // never actually playing back. Persisted below so it doesn't reappear.
+        console.log(`[SERVER] board entry ${e.addr} has no current-format blob — dropping (stale run)`)
+      }
     }
-    console.log(`[SERVER] board loaded — ${board.length} entr${board.length === 1 ? 'y' : 'ies'}, ${blobs.size} blob(s)`)
+    const droppedCount = rawBoard.length - kept.length
+    board = kept
+    if (droppedCount > 0) {
+      const ok = await Storage.set(LB_KEY, board)
+      console.log(
+        `[SERVER] board loaded — dropped ${droppedCount} stale entr${droppedCount === 1 ? 'y' : 'ies'}, ${board.length} remain, persisted=${ok}`
+      )
+    } else {
+      console.log(`[SERVER] board loaded — ${board.length} entr${board.length === 1 ? 'y' : 'ies'}, ${blobs.size} blob(s)`)
+    }
   } catch (err) {
     console.log('[SERVER] board load failed, starting empty:', err)
     board = []

@@ -162,11 +162,31 @@ function buildRunout() {
   }
 }
 
+/**
+ * Perpendicular cap wall right behind the start of the track (joint0 / SEGMENTS[0].a).
+ * The segment walls already extend WALL_EXTEND past it, but nothing ever closed
+ * off the BACK — a player rolled/knocked backward before launch had open air
+ * there. Oriented like the segment walls (s.rotation aligns local Y to the
+ * surface normal, local Z to the travel direction — segment0 is tilted 7.9°,
+ * not flat, so this can't be an axis-aligned box like the finish end-wall).
+ */
+function buildSpawnWall() {
+  const s = SEGMENTS[0]
+  const height = WALL_HEIGHT * 2 // matches the finish end-wall's extra height — a hard stop, not hoppable
+  box(
+    Vector3.add(s.a, Vector3.scale(s.normal, height / 2)),
+    Vector3.create(CHUTE_INNER_WIDTH + 2, height, 1.5),
+    s.rotation,
+    WALL_COLOR
+  )
+}
+
 export function buildTrack() {
   // rails on every segment but the first (kept dim so the run starts in
   // near-dark, then lights up) — covers the turns AND the longer easing tail.
   SEGMENTS.forEach((s, i) => buildSegment(s, i >= 1))
   buildRunout()
+  buildSpawnWall()
   OBSTACLES.forEach(buildObstacle)
   console.log(`[CLIENT] track built (${SEGMENTS.length} segments, ${OBSTACLES.length} obstacles, box floor)`)
 }

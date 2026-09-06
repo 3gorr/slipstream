@@ -48,13 +48,28 @@ export const TRACK_ORIGIN = Vector3.create(8, 0, 4)
  * walls at the turns stay inside the 16 m-wide parcel column).
  *
  * Pitch profile: 7.9° → 10.3° → 13.9° → 15.9° (steepening, so the three turn
- * joints are all CONCAVE and support the sphere), then eases 15.9° → 4.0° →
- * 2.2° → 1.1° → 0.4° across four gentle weaving transition steps before the
- * flat run-out (length pass, Sept 2026 — extended the easing tail instead of
- * adding a second steep S-bend, so every new joint stays CONVEX/seamless like
- * the original two transition steps; SEAM_Z below still only lists the three
- * original concave turn joints). pinForce keeps the sphere glued through the
- * concave joints; the convex ones need none.
+ * joints are all CONCAVE and support the sphere), then 2.0° → 3.6° → 1.2° →
+ * 4.5° across four weaving transition steps before the flat run-out (length
+ * pass, Sept 2026, redesigned in the kicker pass below — every segment here
+ * has real slope, none near-flat, on purpose: "some more, some less").
+ *
+ * Two of those four STEEPEN going in (2.0°→3.6° into joint5, 1.2°→4.5° into
+ * joint7) — the same kind of transition as the three turn joints: CONCAVE, the
+ * shallower slab's forward extension rides proud of the next steeper slab (a
+ * soft step-down that needs grip). SEAM_Z below lists indices [1,2,3,5,7] —
+ * the turn joints AND these two. The other two (15.9°→2.0° into joint4,
+ * 3.6°→1.2° into joint6) ease and stay CONVEX/seamless, same as the original
+ * transition joints — no pinning needed.
+ *
+ * Kicker pass history (Sept 2026): the tail originally eased 15.9°→4.0°→2.2°→
+ * 1.1°→0.4°, nearly flat for the last ~190 m — felt like crawling. Round 1
+ * reshuffled the fixed joint4→joint7(=RUNOUT_Y, then 3.9) budget into one
+ * kicker (~3.1°, budget-capped). Round 2 lowered RUNOUT_Y to 1.5 for a bigger
+ * budget (~5.4° kicker), but left joints 5-6 an almost-flat coast — "one
+ * section has no tilt". Round 3 (current) redesigned the whole tail for
+ * continuous variation instead of a flat coast + single kicker; RUNOUT_Y is
+ * now 0. RUNOUT_Y here, joint7 and RUNOUT_END in track-joints.ts are one
+ * edited set — keep all three equal.
  *
  * Δyaw at the three turn joints ≈ −14° / +18° / −14°. Edit the shape in
  * src/shared/track-joints.ts, then re-run `npm run gen-track`.
@@ -68,8 +83,9 @@ export const RUNOUT_START_Z = 372
  * dropped entirely (this was the end-of-track fall-through at the old Z=160
  * edge, now scaled up with the longer track). */
 export const RUNOUT_END_Z = 380
-/** Y of the flat run-out surface (matches the last joint). */
-export const RUNOUT_Y = 3.9
+/** Y of the flat run-out surface (matches the last joint — see the pitch-profile
+ * note above; landed at 0 by the kicker-pass budget, not a special-cased value). */
+export const RUNOUT_Y = 0
 
 const WORLD_UP = Vector3.create(0, 1, 0)
 
@@ -116,11 +132,13 @@ export const SEGMENTS: TrackSegment[] = (() => {
 })()
 
 /**
- * Z of the concave floor-slab joints (turn joints) where the forward-extended
- * slabs leave a small step-down. The vehicle pins the sphere harder within
- * ±SEAM_ZONE of these. The convex transition joints are seamless and not listed.
+ * Z of the CONCAVE joints — turns (indices 1-3) plus the two steepening tail
+ * joints from the kicker pass (indices 5, 7; see the pitch-profile note above)
+ * — where the forward-extended slabs leave a small step-down. The vehicle pins
+ * the sphere harder within ±SEAM_ZONE of these. The convex (easing) joints are
+ * seamless and not listed.
  */
-export const SEAM_Z: number[] = JOINTS.slice(1, 4).map((j) => j.z)
+export const SEAM_Z: number[] = [1, 2, 3, 5, 7].map((i) => JOINTS[i].z)
 export const SEAM_ZONE = 3.5
 
 /** the segment whose Z range contains z (clamped to the ends) */
@@ -182,7 +200,13 @@ export const SPAWN_LOOK: Vector3 = Vector3.add(surfacePointAt(SEGMENTS[0].a.z + 
  * `offset` is signed lateral distance from the centreline (+ = right of travel,
  * same convention as laneOffsetAt/trackOffsetAt). Kept away from SEAM_Z (the
  * concave floor seams already need special pinning) so a dodge never stacks on
- * top of a seam-transition frame. Client builds the mesh + collider in
+ * top of a seam-transition frame — SEAM_Z is now [40, 78, 116, 244, 372] (kicker
+ * pass added two tail seams), every Z below keeps a margin of several metres
+ * past ±SEAM_ZONE(3.5) of all five. Also kept clear of the spawn/grace area
+ * (nothing before Z 50) and the final approach (nothing past Z 350, ahead of
+ * the last kicker + flat run-out) so the finish stays a clean sprint. Doubled
+ * from 6 to 12 for the full-length track — the original 6 are unchanged, 6 new
+ * ones fill the gaps between them. Client builds the mesh + collider in
  * client/track.ts; this is pure placement data.
  */
 export interface Obstacle {
@@ -190,12 +214,18 @@ export interface Obstacle {
   offset: number
 }
 export const OBSTACLES: Obstacle[] = [
+  { z: 50, offset: -1.5 },
   { z: 60, offset: 1.2 },
   { z: 100, offset: -2.0 },
+  { z: 130, offset: 1.6 },
   { z: 160, offset: 2.0 },
+  { z: 185, offset: -1.9 },
   { z: 210, offset: -1.3 },
+  { z: 225, offset: 1.7 },
   { z: 270, offset: 1.8 },
-  { z: 330, offset: -2.1 }
+  { z: 300, offset: -1.1 },
+  { z: 330, offset: -2.1 },
+  { z: 350, offset: 1.5 }
 ]
 
 /**

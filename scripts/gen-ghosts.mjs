@@ -43,7 +43,7 @@ const { TRACK_ORIGIN, trackCentreAt, segmentAtZ, RUNOUT_START_Z, HALF_LANE, CHEC
 
 const DT = 1 / RECORD_HZ
 const START_Z = 10 // where the player effectively launches (SPAWN.z ≈ 10.09)
-const FINISH_Z = CHECKPOINTS_Z[CHECKPOINTS_Z.length - 1] // 156
+const FINISH_Z = CHECKPOINTS_Z[CHECKPOINTS_Z.length - 1] // 378 (length pass, Sept 2026 — was 156)
 const ACCEL_TIME = 1.5 // seconds to ramp from ~rest to cruise — the real gyrosphere is quick
 const V_MIN = 0.05 // tiny floor only to keep the very first sample non-degenerate
 
@@ -90,8 +90,9 @@ function simulate(laneOffset, vCruise) {
 /** find the cruise speed that finishes in ~targetSeconds */
 function tuneCruise(laneOffset, targetSeconds) {
   let lo = 1
-  // ~8 s over the ~155 m track needs ~20 m/s cruise, so the search range must
-  // reach that. This is the search bound, not the accel profile.
+  // ~21 s over the ~380 m track (length pass, Sept 2026) needs ~18 m/s cruise —
+  // comfortably inside this bound already (it was sized for the old ~155 m
+  // track's ~20 m/s). This is the search bound, not the accel profile.
   let hi = 45
   let best = null
   for (let i = 0; i < 30; i++) {
@@ -129,11 +130,14 @@ function toSamples(world) {
 // --- rivals ---------------------------------------------------
 // lane offsets: all within ±(HALF_LANE − sphereR) ≈ ±3, distinct, spread across
 // the lane so they ride beside the player, not through them.
-// Tuned to the player's real time on this track (~8.35 s).
+// Length pass (Sept 2026): track went ~155 m -> ~380 m, target finish times
+// rescaled from ~8.35 s to ~21 s (requested spread, same relative shape as the
+// old 7.8/8.4/9.6 s set). Ghosts don't collide with OBSTACLES (playback only,
+// no physics), so the fixed lane offsets are unaffected by the new obstacles.
 const RIVALS = [
-  { name: 'Rival A', lane: -1.3, targetSeconds: 7.8 }, // the rabbit — just ahead, catchable
-  { name: 'Rival B', lane: +1.7, targetSeconds: 8.4 }, // neck-and-neck with the player
-  { name: 'Rival C', lane: -2.7, targetSeconds: 9.6 } // the one you overtake
+  { name: 'Rival A', lane: -1.3, targetSeconds: 19.5 }, // the rabbit — just ahead, catchable
+  { name: 'Rival B', lane: +1.7, targetSeconds: 21.0 }, // neck-and-neck with the player
+  { name: 'Rival C', lane: -2.7, targetSeconds: 23.0 } // the one you overtake
 ]
 
 const baked = []
