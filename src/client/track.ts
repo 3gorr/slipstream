@@ -12,9 +12,8 @@
  * skybox the flat ribbon reads washed-out. Kept in the repo, not in the scene.
  *
  * WALLS + RAILS: box primitives, one pair per segment. Rails (emissive neon, no
- * collider) run the whole track except the very first segment (kept dim for
- * contrast at the start) — extended past the original three turn segments to
- * cover the longer easing tail too (length pass, Sept 2026).
+ * collider) run the whole track — every segment including the first, so the
+ * start looks like the rest.
  *
  * OBSTACLES: static box pillars (OBSTACLES in shared/track.ts), full collider,
  * offset off the centreline so there is always a way around. Same box-primitive
@@ -218,9 +217,9 @@ function buildSpawnWall() {
 }
 
 export function buildTrack() {
-  // rails on every segment but the first (kept dim so the run starts in
-  // near-dark, then lights up) — covers the turns AND the longer easing tail.
-  SEGMENTS.forEach((s, i) => buildSegment(s, i >= 1, SEGMENTS[i - 1], SEGMENTS[i + 1]))
+  // rails on EVERY segment (the first one included now) so the start reads the
+  // same as the rest of the track. Purely the emissive strip — no collider.
+  SEGMENTS.forEach((s, i) => buildSegment(s, true, SEGMENTS[i - 1], SEGMENTS[i + 1]))
   buildRunout()
   buildSpawnWall()
   OBSTACLES.forEach(buildObstacle)
