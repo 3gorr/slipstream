@@ -8,38 +8,40 @@
  * After editing this, re-run `npm run gen-track`.
  */
 // Length pass (Sept 2026): extended past the original seg-3 peak (15.9°) with
-// four easing/weave segments instead of a second steep S-bend — keeps every
-// turn joint within the already-validated ≤15.9° pitch range (spike B) and
-// stays in the same "convex, seamless" regime as the old transition joints
-// (SEAM_Z only lists indices 1-3, unaffected by joints appended after them).
+// four easing/weave segments instead of a second steep S-bend — every joint
+// stays within the already-validated ≤15.9° pitch range (spike B).
 // Total track: 158 m -> 380 m (+140%). Needs a live playtest / accelForce
 // retune pass — see CLAUDE.md §1 (run duration relaxed to 90-120s for this).
 //
-// Kicker pass, round 3 (Sept 2026): rounds 1-2 kept easing the tail down to a
+// Kicker pass, round 3 (Sept 2026): rounds 1-2 eased the tail down to a
 // near-flat coast (0.2°/0.2°) before one final kicker — "felt like there's one
-// flat section". Redesigned the whole post-peak tail (joints 4-7) for genuine
-// variation, no near-flat segment anywhere: 2.0° → 3.6° → 1.2° → 4.5°. Two of
-// those STEEPEN going in (2.0°→3.6° into joint5, 1.2°→4.5° into joint7) — same
-// kind of transition as the three turn joints (CONCAVE: the shallower slab's
-// forward extension rides proud of the next, steeper slab — a soft step-down
-// that needs grip). Added joints 5 and 7 to SEAM_Z in track.ts so they get the
-// same seamPin treatment, instead of leaving a new concave joint unprotected.
-// The other two (15.9°→2.0° into joint4, 3.6°→1.2° into joint6) still EASE —
-// CONVEX/seamless, same as before, no pinning needed. All four segments keep
-// their existing Z spacing (still 64 m legs) and X weave — only Y changed, so
-// CHECKPOINTS_Z / RUNOUT_START_Z / RUNOUT_END_Z / OBSTACLES are untouched.
-// Budget: joint3 (peak, Y 12.5, untouched) down to joint7 lands RUNOUT_Y at
-// exactly 0 — updated together with RUNOUT_END below and RUNOUT_Y in track.ts
-// (these three must be edited as a set).
+// flat section". Redesigned the whole post-peak tail (segments 3-6) for genuine
+// variation, no near-flat segment anywhere: 2.0° · 3.6° · 1.2° · 4.5°. The
+// steepening joints in this tail (concave, need seamPin) are joint 4 (2.0→3.6)
+// and joint 6 (1.2→4.5); joints 3, 5, 7 ease and stay convex. See the joint-by-
+// joint check and SEAM_Z in track.ts. All segments keep their existing Z
+// spacing (64 m legs) and X weave — only Y changed, so CHECKPOINTS_Z /
+// RUNOUT_START_Z / RUNOUT_END_Z / OBSTACLES are untouched. Budget: joint 3
+// (Y 12.5, untouched) down to joint 7 lands RUNOUT_Y at exactly 0 — edited as a
+// set with RUNOUT_END below and RUNOUT_Y in track.ts.
+//
+// Seam-fix pass (Sept 2026): rounds above wrote SEAM_Z as [1,2,3,5,7] off a
+// mislabelled pitch table — joint 3 kept (now convex, the pin pressed the
+// sphere onto a wall corner at the break) and joints 5/7 added instead of the
+// real concave 4/6. Corrected to [1,2,4,6]. Also dropped WALL_EXTEND 2.5 -> 1.2
+// (track.ts) so segment 2's wall tail stops poking into the lane at joint 3.
+// The comment on each row is the pitch of the segment that LEAVES that joint
+// (joint N -> joint N+1). "concave" marks a joint whose leaving segment is
+// steeper than its arriving one — the ones in SEAM_Z (track.ts).
 export const JOINT_TUPLES: ReadonlyArray<readonly [number, number, number]> = [
-  [8, 34, 4], // seg 0   7.9°
-  [11, 29, 40], // seg 1  10.3°
-  [5, 22, 78], // seg 2  13.9°
-  [11, 12.5, 116], // seg 3  15.9°  (steep — unchanged peak)
-  [5, 10.3, 180], // seg 4   2.0°  (eases — convex)
-  [11, 6.3, 244], // seg 5   3.6°  (steepens — CONCAVE, in SEAM_Z)
-  [5, 5.0, 308], // seg 6   1.2°  (eases — convex)
-  [8, 0, 372] // seg 7   4.5°  (steepens — CONCAVE, in SEAM_Z; kicker -> flat run-out)
+  [8, 34, 4], //     seg 0  7.9°
+  [11, 29, 40], //   seg 1 10.3°   joint 1 concave  (7.9 -> 10.3)
+  [5, 22, 78], //    seg 2 13.9°   joint 2 concave  (10.3 -> 13.9)
+  [11, 12.5, 116], // seg 3  2.0°   joint 3 CONVEX   (13.9 -> 2.0, the hard length-pass break; X/Y/Z here = the old 15.9° peak point, unchanged)
+  [5, 10.3, 180], // seg 4  3.6°   joint 4 concave  (2.0 -> 3.6)
+  [11, 6.3, 244], //  seg 5  1.2°   joint 5 convex   (3.6 -> 1.2)
+  [5, 5.0, 308], //  seg 6  4.5°   joint 6 concave  (1.2 -> 4.5, the kicker)
+  [8, 0, 372] //      (last joint) joint 7 convex   (4.5 -> flat run-out)
 ]
 
 /** Half the clear lane width, metres. */

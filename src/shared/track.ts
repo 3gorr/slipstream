@@ -19,9 +19,25 @@ export const HALF_LANE = LANE_HALF
 export const CHUTE_INNER_WIDTH = LANE_HALF * 2
 export const WALL_HEIGHT = 3
 export const WALL_THICKNESS = 0.4
-/** Walls (box primitives) are lengthened this much at each end so they overlap
- * past the mitre wedge at each turn (closing the gap a ball could escape). */
-export const WALL_EXTEND = 2.5
+/**
+ * How far each wall box runs PAST its segment's end, so neighbouring walls
+ * overlap instead of leaving a gap. One value can't serve both sides of a turn:
+ * on the OUTSIDE the wall ends diverge (gap — need a long tail), on the INSIDE
+ * they converge (a long tail just pokes into the lane — the sphere jams on it).
+ * So the tail is chosen per wall END by whether that side is inside or outside
+ * the turn at that end (see buildSegment in client/track.ts).
+ *
+ *  - OUTER 1.3: outside of a turn. Covers the widest mitre gap — the sharpest
+ *    turn (joint 2, ~18°) separates the wall ends by ~1.3 m; 1.3+1.3 overlaps it.
+ *  - INNER 0.4: inside of a turn. The two walls already meet at the shared
+ *    joint; 0.4 only kills a hairline corner gap. (Was 2.5 → 1.2 uniform, which
+ *    still poked ~0.6 m in at the joint-3 break; 0.4 drops that to ~0.15 m.)
+ *  - STRAIGHT 1.0: no turn at that end — in practice only segment 0's back and
+ *    the last segment's front (both meet a cap wall / the run-out, plenty).
+ */
+export const WALL_EXTEND_OUTER = 1.3
+export const WALL_EXTEND_INNER = 0.4
+export const WALL_EXTEND_STRAIGHT = 1.0
 
 // --- floor (box primitives) ---
 // The DCL asset pipeline would not load a generated GLB floor (3 attempts), so
@@ -47,19 +63,18 @@ export const TRACK_ORIGIN = Vector3.create(8, 0, 4)
  * Rolling-surface joints, top → bottom. Weaves X 5..11 (so the extended outer
  * walls at the turns stay inside the 16 m-wide parcel column).
  *
- * Pitch profile: 7.9° → 10.3° → 13.9° → 15.9° (steepening, so the three turn
- * joints are all CONCAVE and support the sphere), then 2.0° → 3.6° → 1.2° →
- * 4.5° across four weaving transition steps before the flat run-out (length
- * pass, Sept 2026, redesigned in the kicker pass below — every segment here
- * has real slope, none near-flat, on purpose: "some more, some less").
+ * Segment pitches, joint 0 → joint 7: 7.9° · 10.3° · 13.9° · 2.0° · 3.6° · 1.2°
+ * · 4.5°, then the flat run-out. The first three steepen (turn joints, concave);
+ * the tail (redesigned in the kicker pass) weaves — every segment has real
+ * slope, none near-flat, on purpose: "some more, some less".
  *
- * Two of those four STEEPEN going in (2.0°→3.6° into joint5, 1.2°→4.5° into
- * joint7) — the same kind of transition as the three turn joints: CONCAVE, the
- * shallower slab's forward extension rides proud of the next steeper slab (a
- * soft step-down that needs grip). SEAM_Z below lists indices [1,2,3,5,7] —
- * the turn joints AND these two. The other two (15.9°→2.0° into joint4,
- * 3.6°→1.2° into joint6) ease and stay CONVEX/seamless, same as the original
- * transition joints — no pinning needed.
+ * A JOINT is concave (needs grip — the shallower slab's forward extension rides
+ * proud of the next, steeper slab, a soft step-down) iff its outgoing segment is
+ * steeper than its incoming one. Checked joint by joint: concave at 1, 2, 4
+ * (2.0°→3.6°), 6 (1.2°→4.5°); convex (easing, seamless) at 3 (13.9°→2.0°, the
+ * hard length-pass break), 5 (3.6°→1.2°), 7 (4.5°→flat). SEAM_Z below is exactly
+ * [1, 2, 4, 6]. (The kicker pass first wrote [1,2,3,5,7] here off a mislabelled
+ * pitch table — corrected in the seam-fix pass.)
  *
  * Kicker pass history (Sept 2026): the tail originally eased 15.9°→4.0°→2.2°→
  * 1.1°→0.4°, nearly flat for the last ~190 m — felt like crawling. Round 1
@@ -132,13 +147,27 @@ export const SEGMENTS: TrackSegment[] = (() => {
 })()
 
 /**
- * Z of the CONCAVE joints — turns (indices 1-3) plus the two steepening tail
- * joints from the kicker pass (indices 5, 7; see the pitch-profile note above)
- * — where the forward-extended slabs leave a small step-down. The vehicle pins
- * the sphere harder within ±SEAM_ZONE of these. The convex (easing) joints are
- * seamless and not listed.
+ * Z of the CONCAVE joints — where the track STEEPENS across the joint, so the
+ * forward-extended shallower slab rides proud and leaves a small step-down. The
+ * vehicle pins the sphere harder within ±SEAM_ZONE of these. Convex (easing)
+ * joints are seamless and not listed.
+ *
+ * Concave joints, checked against the actual segment pitches
+ * (7.9,10.3,13.9,2.0,3.6,1.2,4.5) — a joint is concave iff its outgoing segment
+ * is steeper than its incoming one:
+ *   joint 1  7.9→10.3   steepens  ✓
+ *   joint 2 10.3→13.9   steepens  ✓
+ *   joint 3 13.9→2.0    EASES  — convex (was concave in the old tail; the length
+ *                                pass flattened it. Removed here: its downward
+ *                                pin was pressing the sphere onto the wall
+ *                                corner at the break — the seam-fix.)
+ *   joint 4  2.0→3.6    steepens  ✓  (added — the kicker pass mislabelled this
+ *                                     and put 5/7 here instead; corrected.)
+ *   joint 5  3.6→1.2    eases — convex
+ *   joint 6  1.2→4.5    steepens  ✓  (added — same correction.)
+ *   joint 7  4.5→0.0    eases — convex (flat run-out follows)
  */
-export const SEAM_Z: number[] = [1, 2, 3, 5, 7].map((i) => JOINTS[i].z)
+export const SEAM_Z: number[] = [1, 2, 4, 6].map((i) => JOINTS[i].z)
 export const SEAM_ZONE = 3.5
 
 /** the segment whose Z range contains z (clamped to the ends) */
@@ -200,9 +229,10 @@ export const SPAWN_LOOK: Vector3 = Vector3.add(surfacePointAt(SEGMENTS[0].a.z + 
  * `offset` is signed lateral distance from the centreline (+ = right of travel,
  * same convention as laneOffsetAt/trackOffsetAt). Kept away from SEAM_Z (the
  * concave floor seams already need special pinning) so a dodge never stacks on
- * top of a seam-transition frame — SEAM_Z is now [40, 78, 116, 244, 372] (kicker
- * pass added two tail seams), every Z below keeps a margin of several metres
- * past ±SEAM_ZONE(3.5) of all five. Also kept clear of the spawn/grace area
+ * top of a seam-transition frame — the SEAM_Z Z values are [40, 78, 180, 308]
+ * after the seam-fix pass; every Z below clears ±SEAM_ZONE(3.5) of all four
+ * (185 and 300 are the tightest, ~1.5 m and ~4.5 m clear). Also kept clear of
+ * the spawn/grace area
  * (nothing before Z 50) and the final approach (nothing past Z 350, ahead of
  * the last kicker + flat run-out) so the finish stays a clean sprint. Doubled
  * from 6 to 12 for the full-length track — the original 6 are unchanged, 6 new

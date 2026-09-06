@@ -29,7 +29,9 @@ import {
   HALF_LANE,
   WALL_HEIGHT,
   WALL_THICKNESS,
-  WALL_EXTEND,
+  WALL_EXTEND_OUTER,
+  WALL_EXTEND_INNER,
+  WALL_EXTEND_STRAIGHT,
   FLOOR_THICKNESS,
   FLOOR_FWD_EXTEND,
   RUNOUT_END_Z,
@@ -74,7 +76,27 @@ function rail(pos: Vector3, scale: Vector3, rot: Quaternion) {
   return e
 }
 
-function buildSegment(s: TrackSegment, withRails: boolean) {
+const STRAIGHT_EPS = 0.03 // |dot(neighbourDir, right)| below this = no real turn at that end
+
+/**
+ * Tail length for ONE end of a wall on ONE side.
+ * `turnDot` = dot(neighbourDir, s.right) — its sign says which way the track
+ * bends at that end; `insideWhenNeg` is true for the FRONT end (turns left when
+ * the dot is negative -> left side inside) and inverted for the BACK end (the
+ * neighbour is the incoming direction). `side`: -1 = left wall, +1 = right wall.
+ */
+function wallTail(turnDot: number | undefined, invert: boolean, side: number): number {
+  if (turnDot === undefined || Math.abs(turnDot) < STRAIGHT_EPS) return WALL_EXTEND_STRAIGHT
+  const bendSign = invert ? -Math.sign(turnDot) : Math.sign(turnDot)
+  return bendSign === side ? WALL_EXTEND_INNER : WALL_EXTEND_OUTER
+}
+
+function buildSegment(
+  s: TrackSegment,
+  withRails: boolean,
+  prev: TrackSegment | undefined,
+  next: TrackSegment | undefined
+) {
   // floor: forward-extended slab, top face on the a-b line
   const floorLen = s.len + FLOOR_FWD_EXTEND
   const floorCenter = Vector3.add(
@@ -83,9 +105,22 @@ function buildSegment(s: TrackSegment, withRails: boolean) {
   )
   box(floorCenter, Vector3.create(CHUTE_INNER_WIDTH, FLOOR_THICKNESS, floorLen), s.rotation, FLOOR_COLOR)
 
-  const wallLen = s.len + 2 * WALL_EXTEND
+  const frontDot = next ? Vector3.dot(next.dir, s.right) : undefined
+  const backDot = prev ? Vector3.dot(prev.dir, s.right) : undefined
+
   for (const side of [-1, 1]) {
-    const base = Vector3.add(s.center, Vector3.scale(s.right, side * (HALF_LANE + WALL_THICKNESS / 2)))
+    // long tail on the outside of a turn (closes the diverging gap), short on
+    // the inside (a long tail there just pokes into the lane). Front and back
+    // are decided independently — a wall can be inside at one end, outside the
+    // other, so the box is asymmetric: shift its centre and size it by end.
+    const front = wallTail(frontDot, false, side)
+    const back = wallTail(backDot, true, side)
+    const wallLen = s.len + front + back
+
+    const base = Vector3.add(
+      Vector3.add(s.center, Vector3.scale(s.dir, (front - back) / 2)),
+      Vector3.scale(s.right, side * (HALF_LANE + WALL_THICKNESS / 2))
+    )
     box(
       Vector3.add(base, Vector3.scale(s.normal, WALL_HEIGHT / 2)),
       Vector3.create(WALL_THICKNESS, WALL_HEIGHT, wallLen),
@@ -164,9 +199,10 @@ function buildRunout() {
 
 /**
  * Perpendicular cap wall right behind the start of the track (joint0 / SEGMENTS[0].a).
- * The segment walls already extend WALL_EXTEND past it, but nothing ever closed
- * off the BACK — a player rolled/knocked backward before launch had open air
- * there. Oriented like the segment walls (s.rotation aligns local Y to the
+ * The segment 0 side walls extend a little past it (WALL_EXTEND_STRAIGHT — no
+ * turn there), but nothing ever closed off the BACK — a player rolled/knocked
+ * backward before launch had open air there. Oriented like the segment walls
+ * (s.rotation aligns local Y to the
  * surface normal, local Z to the travel direction — segment0 is tilted 7.9°,
  * not flat, so this can't be an axis-aligned box like the finish end-wall).
  */
@@ -184,7 +220,7 @@ function buildSpawnWall() {
 export function buildTrack() {
   // rails on every segment but the first (kept dim so the run starts in
   // near-dark, then lights up) — covers the turns AND the longer easing tail.
-  SEGMENTS.forEach((s, i) => buildSegment(s, i >= 1))
+  SEGMENTS.forEach((s, i) => buildSegment(s, i >= 1, SEGMENTS[i - 1], SEGMENTS[i + 1]))
   buildRunout()
   buildSpawnWall()
   OBSTACLES.forEach(buildObstacle)
