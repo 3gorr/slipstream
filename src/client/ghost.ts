@@ -50,6 +50,7 @@ import { raceHud } from './race-hud'
 import { vehicleState } from './vehicle'
 import { room } from '../shared/messages'
 import { racerName } from './net'
+import { SELF_GHOST_MODE, SHOW_BAKED_GHOSTS } from './flags'
 
 const STEP = 1 / RECORD_HZ
 const SPHERE_R = 1.0
@@ -355,13 +356,22 @@ function hideAll() {
   for (let i = 0; i < ghosts.length; i++) setGhostVisible(ghosts[i], false)
 }
 
-/** whether a ghost should race this run. Baked rivals are the cold-server
- *  stand-in: they show only while no live ghost has arrived. Self and live
- *  ghosts show whenever they have a track. Decided once per run at the
- *  launched edge so the field never changes mid-run. */
+/** whether a ghost should race this run. Baked rivals are an OPT-IN cold-server
+ *  stand-in (SHOW_BAKED_GHOSTS, default off) — when enabled they show only while
+ *  no live ghost has arrived. With the flag off the first run is solo and rivals
+ *  only ever appear as live green ghosts from the 2nd run on. Live ghosts show
+ *  whenever they have a track. The self ghost follows SELF_GHOST_MODE (flags.ts)
+ *  — by default it, too, only stands in while the server is cold. Decided once
+ *  per run at the launched edge so the field never changes mid-run. */
 function shouldShow(gp: GhostPlayer): boolean {
   if (!gp.track) return false
-  if (gp.kind === 'rival') return !hasLiveGhosts
+  if (gp.kind === 'rival') return SHOW_BAKED_GHOSTS && !hasLiveGhosts
+  if (gp.kind === 'self') {
+    // recording / promotion / submit are untouched — this gates the gold sphere only
+    if (SELF_GHOST_MODE === 'never') return false
+    if (SELF_GHOST_MODE === 'auto') return !hasLiveGhosts
+    return true // 'always' — track exists (checked above)
+  }
   return true
 }
 

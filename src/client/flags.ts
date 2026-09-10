@@ -45,3 +45,28 @@ export const SHOW_DEBUG_PANEL = false
  * ghost billboards need it.
  */
 export const SHOW_NET_DEBUG = false
+
+/**
+ * SELF ghost (your gold sphere — your best run this session) display mode.
+ * Recording / promotion / server submit are NOT affected by this — only whether
+ * the gold sphere is drawn. Decided once per run at the launched edge, like every
+ * other ghost, so the field never changes mid-run.
+ *
+ *   'auto'   (default) — self shows only while NO live ghost has arrived
+ *                        (hasLiveGhosts === false: cold / empty / silent server),
+ *                        so the player is never truly alone. Hidden from the next
+ *                        run on once live ghosts turn up.
+ *   'always'          — self shows whenever a best-run track exists (old behaviour).
+ *   'never'           — self is never drawn.
+ */
+export const SELF_GHOST_MODE: 'auto' | 'always' | 'never' = 'auto'
+
+/**
+ * Baked BLUE rival ghosts (src/shared/bakedGhosts.ts) as a cold-server safety net.
+ * DEFAULT OFF: the new design is a solo first run — no rivals at all until the
+ * player's own runs come back from the server as live green ghosts (2nd run on).
+ * Flip to true to bring the baked rivals back as a stand-in while the server has
+ * no live ghosts yet. Data and decode path are untouched — this only gates the
+ * on-track visibility.
+ */
+export const SHOW_BAKED_GHOSTS = false
